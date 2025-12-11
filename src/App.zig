@@ -1,7 +1,11 @@
 const std = @import("std");
 const mach = @import("mach");
 const gpu = mach.gpu;
-
+pub const Vec2 = @Vector(2, f32);
+pub const Player = struct{
+    pos:Vec2,
+    radius:f32,
+};
 const App = @This();
 // mach stuff:
 pub const Modules = mach.Modules(.{
@@ -38,14 +42,30 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     // wgpu stuff:
     const shader_module = window.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
     defer shader_module.release();
-    const blend = gpu.BlendState{};
+    // blending: final color = (src_color * src_factor) + (dst_color * dst_factor)
+    // src_factor is the new color we pass in
+    // dst_factor is the color already in the buffer
+    // final alpha = (src_alpha * src_factor) + (dst_alpha * dst_factor)
+    const blend = gpu.BlendState{
+        .color = .{
+            .src_factor = .src_alpha,
+            .dst_factor = .one_minus_src_alpha,
+            .operation = .add,
+        },
+        .alpha = .{
+            .src_factor = .one,
+            .dst_factor = .zero,
+            .operation = .add,
+        },
+    };
     const color_target = gpu.ColorTargetState{
         .format = window.framebuffer_format,
         .blend = &blend,
     };
+    // targets= &.{location(0),location(1),...}
     const fragment = gpu.FragmentState.init(.{
         .module = shader_module,
-        .entry_point = "frag_main",
+        .entry_point = "getFragmentColor",
         .targets = &.{color_target},
     });
     const label = @tagName(mach_module) ++ ".init";
@@ -54,7 +74,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         .fragment = &fragment,
         .vertex = gpu.VertexState{
             .module = shader_module,
-            .entry_point = "vertex_main",
+            .entry_point = "getVertexLocation",
         },
     };
     app.pipeline = window.device.createRenderPipeline(&pipeline_descriptor);
@@ -101,14 +121,13 @@ pub fn tick(app: *App, core: *mach.Core) void {
     }));
     defer render_pass.release();
 
-    // Draw
     render_pass.setPipeline(app.pipeline);
+    // draw(vertex_count, instance_count, starting_vertex, starting_instance)
+    // instance_count: how many times the drawing process should be repeated
     render_pass.draw(3, 1, 0, 0);
 
-    // Finish render pass
     render_pass.end();
 
-    // Submit our commands to the queue
     var command = encoder.finish(&.{ .label = label });
     defer command.release();
     window.queue.submit(&[_]*gpu.CommandBuffer{command});
