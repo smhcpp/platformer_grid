@@ -11,9 +11,13 @@ pub const Vec2 = @Vector(2, f32);
 pub const Globals = struct {
     aspect: f32,
 };
-pub const Player = struct {
+pub const Rect = struct {
     pos: Vec2,
-    radius: f32,
+    size: Vec2,
+};
+pub const Player = struct {
+    shape: Rect,
+    velocity: Vec2,
 };
 const App = @This();
 // mach stuff:
@@ -34,11 +38,10 @@ pipeline: *gpu.RenderPipeline,
 
 //----------------------------------
 // Here We define all fields in app:
-player_vel: Vec2 = .{ 0.0, 0.0 },
 bind_group: *gpu.BindGroup,
 //player buffer(for now)
 player: Player,
-uniform_buffer: *gpu.Buffer,
+player_buffer: *gpu.Buffer,
 // Globals:
 globals: Globals,
 globals_buffer: *gpu.Buffer,
@@ -54,13 +57,16 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         .window = window,
         .title_timer = try mach.time.Timer.start(),
         .player = .{
-            .pos = .{ 0.0, 0.0 },
-            .radius = 0.05,
+            .shape = .{
+                .pos = .{ 0.0, 0.0 },
+                .size = .{ 0.1, 0.05 },
+            },
+            .velocity = .{ 0.0, 0.0 },
         },
         .globals = .{
             .aspect = 1.0,
         },
-        .uniform_buffer = undefined,
+        .player_buffer = undefined,
         .bind_group = undefined,
         .globals_buffer = undefined,
         .pipeline = undefined,
@@ -73,10 +79,10 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     app.globals.aspect = F32U(window.width) / F32U(window.height);
 
     // Create uniform buffer for player data
-    app.uniform_buffer = window.device.createBuffer(&.{
+    app.player_buffer = window.device.createBuffer(&.{
         .label = "player uniform buffer",
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(Player),
+        .size = @sizeOf(Rect),
         .mapped_at_creation = .false,
     });
     app.globals_buffer = window.device.createBuffer(&.{
@@ -85,8 +91,6 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         .size = @sizeOf(Globals),
         .mapped_at_creation = .false,
     });
-    defer app.uniform_buffer.release();
-    defer app.globals_buffer.release();
     // wgpu stuff:
     const shader_module = window.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
     defer shader_module.release();
@@ -101,7 +105,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
                 .buffer = .{
                     .type = .uniform,
                     .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(Player),
+                    .min_binding_size = @sizeOf(Rect),
                 },
             },
             .{
@@ -122,9 +126,9 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         .entries = &.{
             .{
                 .binding = 0,
-                .buffer = app.uniform_buffer,
+                .buffer = app.player_buffer,
                 .offset = 0,
-                .size = @sizeOf(Player),
+                .size = @sizeOf(Rect),
             },
             .{
                 .binding = 1,
@@ -165,6 +169,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
         .label = label,
         .fragment = &fragment,
+        // .layout = pipeline_layout,
         .vertex = gpu.VertexState{
             .module = shader_module,
             .entry_point = "getVertexLocation",
@@ -185,28 +190,29 @@ pub fn tick(app: *App, core: *mach.Core) void {
             .close => core.exit(),
             .key_press => |ev| {
                 const speed = 0.012;
-                if (ev.key == .left) app.player_vel[0] = -speed;
-                if (ev.key == .right) app.player_vel[0] = speed;
-                if (ev.key == .up) app.player_vel[1] = speed;
-                if (ev.key == .down) app.player_vel[1] = -speed;
+                if (ev.key == .left) app.player.velocity[0] = -speed;
+                if (ev.key == .right) app.player.velocity[0] = speed;
+                if (ev.key == .up) app.player.velocity[1] = speed;
+                if (ev.key == .down) app.player.velocity[1] = -speed;
             },
             .key_release => |ev| {
-                if (ev.key == .left and app.player_vel[0] < 0.0) app.player_vel[0] = 0.0;
-                if (ev.key == .right and app.player_vel[0] > 0.0) app.player_vel[0] = 0.0;
-                if (ev.key == .up and app.player_vel[1] > 0.0) app.player_vel[1] = 0.0;
-                if (ev.key == .down and app.player_vel[1] < 0.0) app.player_vel[1] = 0.0;
+                if (ev.key == .left and app.player.velocity[0] < 0.0) app.player.velocity[0] = 0.0;
+                if (ev.key == .right and app.player.velocity[0] > 0.0) app.player.velocity[0] = 0.0;
+                if (ev.key == .up and app.player.velocity[1] > 0.0) app.player.velocity[1] = 0.0;
+                if (ev.key == .down and app.player.velocity[1] < 0.0) app.player.velocity[1] = 0.0;
             },
             // .key_repeat => |ev| {
             // },
             else => {},
         }
     }
-    app.player.pos += app.player_vel;
+    app.player.shape.pos += app.player.velocity;
 
     const window = core.windows.getValue(app.window);
 
-    //add player uniform buffer
-    window.queue.writeBuffer(app.uniform_buffer, 0, &[_]Player{app.player});
+    //write everything into buffer so that gpu can read it
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]Rect{app.player.shape});
+    window.queue.writeBuffer(app.globals_buffer, 0, &[_]Globals{app.globals});
 
     const back_buffer_view = window.swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
@@ -232,7 +238,7 @@ pub fn tick(app: *App, core: *mach.Core) void {
     // render_pass.draw(3, 1, 0, 0);
     // Draw 6 vertices (2 triangles forming a quad)
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.draw(6, 1, 0, 0);
+    render_pass.draw(4, 1, 0, 0);
 
     render_pass.end();
     var command = encoder.finish(&.{ .label = label });
@@ -242,4 +248,7 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
 pub fn deinit(app: *App) void {
     app.pipeline.release();
+    app.player_buffer.release();
+    app.globals_buffer.release();
+    app.bind_group.release();
 }
