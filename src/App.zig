@@ -238,7 +238,7 @@ pub fn tick(app: *App, core: *mach.Core) void {
     // render_pass.draw(3, 1, 0, 0);
     // Draw 6 vertices (2 triangles forming a quad)
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.draw(4, 1, 0, 0);
+    render_pass.draw(6, 1, 0, 0);
 
     render_pass.end();
     var command = encoder.finish(&.{ .label = label });
