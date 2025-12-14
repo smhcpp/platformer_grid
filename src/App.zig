@@ -168,21 +168,60 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     app.pipeline = window.device.createRenderPipeline(&pipeline_descriptor);
 }
 
-pub fn tick(app: *App, core: *mach.Core) void {
+pub fn updateSystems(app: *App,core: *mach.Core) void {
+    const window = core.windows.getValue(app.window);
+    app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
+    app.player.shape.x +=app.player.velocity[0];
+    app.player.shape.y +=app.player.velocity[1];
+}
+
+pub fn updateBuffers(app: *App,core: *mach.Core) void {
+    const window = core.windows.getValue(app.window);
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]Rect{app.player.shape});
+    window.queue.writeBuffer(app.globals_buffer, 0, &[_]Globals{app.globals});
+}
+
+pub fn handleEvents(app: *App,core: *mach.Core) void {
+    const dl: f32 = 0.02;
     while (core.nextEvent()) |event| {
         switch (event) {
             .window_open => |ev| {
                 try setupPipeline(core, app, ev.window_id);
             },
             .close => core.exit(),
+            .key_press => |ev|{
+                if (ev.key == .right){
+                    app.player.velocity[0] = dl;
+                } else if (ev.key == .left){
+                    app.player.velocity[0] = -dl;
+                } else if (ev.key == .up){
+                    app.player.velocity[1] = dl;
+                } else if (ev.key == .down){
+                    app.player.velocity[1] = -dl;
+                }
+            },
+            .key_release => |ev|{
+                if (ev.key == .right){
+                    app.player.velocity[0] = 0.0;
+                } else if (ev.key == .left){
+                    app.player.velocity[0] = 0.0;
+                } else if (ev.key == .up){
+                    app.player.velocity[1] = 0.0;
+                } else if (ev.key == .down){
+                    app.player.velocity[1] = 0.0;
+                }
+            },
             else => {},
         }
     }
+}
+
+pub fn tick(app: *App, core: *mach.Core) void {
+    handleEvents(app,core);
+    app.updateSystems(core);
+    app.updateBuffers(core);
 
     const window = core.windows.getValue(app.window);
-    app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]Rect{app.player.shape});
-    window.queue.writeBuffer(app.globals_buffer, 0, &[_]Globals{app.globals});
     const back_buffer_view = window.swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
 
