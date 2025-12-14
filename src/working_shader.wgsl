@@ -1,16 +1,9 @@
-struct Rect {
-    x:f32,
-    y:f32,
-    w:f32,
-    h:f32,
-}
 
-@group(0) @binding(0) var<uniform> rect: Rect;
 @vertex fn vertex_main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4<f32> {
     var pos = array<vec2<f32>, 3>(
-        vec2<f32>( rect.x, rect.y ),
-        vec2<f32>(rect.x - rect.w, rect.y + rect.h),
-        vec2<f32>(rect.x + rect.w, rect.y + rect.h),
+        vec2<f32>( 0.0,  0.5),
+        vec2<f32>(-0.5, -0.5),
+        vec2<f32>( 0.5, -0.5)
     );
     return vec4<f32>(pos[VertexIndex], 0.0, 1.0);
 }

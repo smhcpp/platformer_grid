@@ -1,28 +1,7 @@
 const std = @import("std");
 const mach = @import("mach");
 const gpu = mach.gpu;
-pub fn F32U(value: u32) f32 {
-    return @floatFromInt(value);
-}
-pub fn U32F(value: f32) u32 {
-    return @intFromFloat(value);
-}
-pub const Vec2 = @Vector(2, f32);
-pub const Globals = struct {
-    aspect: f32,
-};
-pub const Rect = packed struct {
-    x:f32,
-    y:f32,
-    w:f32,
-    h:f32,
-    // pos: Vec2,
-    // size: Vec2,
-};
-pub const Player = struct {
-    shape: Rect,
-    velocity: Vec2,
-};
+
 const App = @This();
 
 pub const Modules = mach.Modules(.{
@@ -41,9 +20,6 @@ pub const main = mach.schedule(.{
 
 window: mach.ObjectID,
 pipeline: *gpu.RenderPipeline,
-bind_group: *gpu.BindGroup,
-player: Player,
-player_buffer: *gpu.Buffer,
 
 pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_tick = app_mod.id.tick;
@@ -56,63 +32,13 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     app.* = .{
         .window = window,
         .pipeline = undefined,
-        // new stuff added:
-        .player = .{
-            .shape = .{
-                .x = 0.0,
-                .y = 0.0,
-                .w = 0.5,
-                .h = 0.5,
-            },
-            .velocity = .{ 0.0, 0.0 },
-        },
-        .player_buffer = undefined,
-        .bind_group = undefined,
     };
 }
 
 fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     var window = core.windows.getValue(window_id);
     defer core.windows.setValueRaw(window_id, window);
-    app.player_buffer = window.device.createBuffer(&.{
-        .label = "player uniform buffer",
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(Rect),
-        .mapped_at_creation = .false,
-    });
-    const bind_group_layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
-        .label = "bind group layout",
-        .entries = &.{
-            .{
-                .binding = 0,
-                .visibility = .{ .vertex = true, .fragment = true },
-                .buffer = .{
-                    .type = .uniform,
-                    .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(Rect),
-                },
-            },
-        },
-    }));
-    defer bind_group_layout.release();
-    app.bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
-        .label = "Bind groups",
-        .layout = bind_group_layout,
-        .entries = &.{
-            .{
-                .binding = 0,
-                .buffer = app.player_buffer,
-                .offset = 0,
-                .size = @sizeOf(Rect),
-            },
-        },
-    }));
-    // ADD THIS BLOCK:
-    const pipeline_layout = window.device.createPipelineLayout(&gpu.PipelineLayout.Descriptor.init(.{
-        .label = "pipeline layout",
-        .bind_group_layouts = &.{bind_group_layout},
-    }));
-    defer pipeline_layout.release();
+
     const shader_module = window.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
     defer shader_module.release();
 
@@ -130,14 +56,13 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
 
     const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
         .fragment = &fragment,
-        .layout = pipeline_layout,  // ADD THIS LINE!
         .vertex = gpu.VertexState{
             .module = shader_module,
             .entry_point = "vertex_main",
         },
     };
-    app.pipeline = window.device.createRenderPipeline(&pipeline_descriptor);
 
+    app.pipeline = window.device.createRenderPipeline(&pipeline_descriptor);
     std.debug.print("Triangle pipeline created!\n", .{});
 }
 
@@ -153,7 +78,6 @@ pub fn tick(app: *App, core: *mach.Core) void {
     }
 
     const window = core.windows.getValue(app.window);
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]Rect{app.player.shape});
     const back_buffer_view = window.swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
 
@@ -173,7 +97,6 @@ pub fn tick(app: *App, core: *mach.Core) void {
     defer render_pass.release();
 
     render_pass.setPipeline(app.pipeline);
-    render_pass.setBindGroup(0, app.bind_group, &.{});
     render_pass.draw(3, 1, 0, 0);
     render_pass.end();
 
