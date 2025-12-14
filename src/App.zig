@@ -9,7 +9,7 @@ pub fn U32F(value: f32) u32 {
 }
 pub const Vec2 = @Vector(2, f32);
 pub const Globals = struct {
-    aspect: f32,
+    aspect_ratio: f32,
 };
 pub const Rect = packed struct {
     x:f32,
@@ -43,7 +43,9 @@ window: mach.ObjectID,
 pipeline: *gpu.RenderPipeline,
 bind_group: *gpu.BindGroup,
 player: Player,
+globals: Globals,
 player_buffer: *gpu.Buffer,
+globals_buffer: *gpu.Buffer,
 
 pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_tick = app_mod.id.tick;
@@ -66,7 +68,11 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
             },
             .velocity = .{ 0.0, 0.0 },
         },
+        .globals=.{
+            .aspect_ratio=1.0,
+        },
         .player_buffer = undefined,
+        .globals_buffer = undefined,
         .bind_group = undefined,
     };
 }
@@ -80,6 +86,13 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         .size = @sizeOf(Rect),
         .mapped_at_creation = .false,
     });
+    app.globals_buffer = window.device.createBuffer(&.{
+        .label = "globals uniform buffer",
+        .usage = .{ .uniform = true, .copy_dst = true },
+        .size = @sizeOf(Globals),
+        .mapped_at_creation = .false,
+    });
+
     const bind_group_layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
         .label = "bind group layout",
         .entries = &.{
@@ -90,6 +103,15 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
                     .type = .uniform,
                     .has_dynamic_offset = .false,
                     .min_binding_size = @sizeOf(Rect),
+                },
+            },
+            .{
+                .binding = 1,
+                .visibility = .{ .vertex = true, .fragment = true },
+                .buffer = .{
+                    .type = .uniform,
+                    .has_dynamic_offset = .false,
+                    .min_binding_size = @sizeOf(Globals),
                 },
             },
         },
@@ -105,6 +127,12 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
                 .offset = 0,
                 .size = @sizeOf(Rect),
             },
+            .{
+                .binding = 1,
+                .buffer = app.globals_buffer,
+                .offset = 0,
+                .size = @sizeOf(Globals),
+            },
         },
     }));
     // ADD THIS BLOCK:
@@ -113,6 +141,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         .bind_group_layouts = &.{bind_group_layout},
     }));
     defer pipeline_layout.release();
+    /////// the line above needs to be tested
     const shader_module = window.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
     defer shader_module.release();
 
@@ -153,7 +182,9 @@ pub fn tick(app: *App, core: *mach.Core) void {
     }
 
     const window = core.windows.getValue(app.window);
+    app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
     window.queue.writeBuffer(app.player_buffer, 0, &[_]Rect{app.player.shape});
+    window.queue.writeBuffer(app.globals_buffer, 0, &[_]Globals{app.globals});
     const back_buffer_view = window.swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
 
@@ -174,7 +205,7 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
     render_pass.setPipeline(app.pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.draw(3, 1, 0, 0);
+    render_pass.draw(6, 1, 0, 0);
     render_pass.end();
 
     var command = encoder.finish(&.{});
