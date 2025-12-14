@@ -52,7 +52,7 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_exit = app_mod.id.deinit;
 
     const window = try core.windows.new(.{
-        .title = "Simple Triangle",
+        .title = "Some Platformer",
     });
 
     app.* = .{
@@ -63,8 +63,8 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
             .shape = .{
                 .x = 0.0,
                 .y = 0.0,
-                .w = 0.5,
-                .h = 0.5,
+                .w = 0.1,
+                .h = 0.2,
             },
             .velocity = .{ 0.0, 0.0 },
         },
@@ -166,8 +166,6 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         },
     };
     app.pipeline = window.device.createRenderPipeline(&pipeline_descriptor);
-
-    std.debug.print("Triangle pipeline created!\n", .{});
 }
 
 pub fn tick(app: *App, core: *mach.Core) void {
