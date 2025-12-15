@@ -11,13 +11,15 @@ pub const Vec2 = @Vector(2, f32);
 pub const Globals = struct {
     aspect_ratio: f32,
 };
-pub const Rect = packed struct {
+pub const RectGPU = packed struct {
     x:f32,
     y:f32,
     w:f32,
     h:f32,
-    // pos: Vec2,
-    // size: Vec2,
+};
+pub const Rect = struct{
+    pos: Vec2,
+    size: Vec2,
 };
 pub const Player = struct {
     shape: Rect,
@@ -61,10 +63,8 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         // new stuff added:
         .player = .{
             .shape = .{
-                .x = 0.0,
-                .y = 0.0,
-                .w = 0.1,
-                .h = 0.2,
+                .pos = .{ 0.0, 0.0 },
+                .size = .{ 0.1, 0.2 },
             },
             .velocity = .{ 0.0, 0.0 },
         },
@@ -83,7 +83,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     app.player_buffer = window.device.createBuffer(&.{
         .label = "player uniform buffer",
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(Rect),
+        .size = @sizeOf(RectGPU),
         .mapped_at_creation = .false,
     });
     app.globals_buffer = window.device.createBuffer(&.{
@@ -102,7 +102,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
                 .buffer = .{
                     .type = .uniform,
                     .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(Rect),
+                    .min_binding_size = @sizeOf(RectGPU),
                 },
             },
             .{
@@ -125,7 +125,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
                 .binding = 0,
                 .buffer = app.player_buffer,
                 .offset = 0,
-                .size = @sizeOf(Rect),
+                .size = @sizeOf(RectGPU),
             },
             .{
                 .binding = 1,
@@ -171,13 +171,18 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
 pub fn updateSystems(app: *App,core: *mach.Core) void {
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
-    app.player.shape.x +=app.player.velocity[0];
-    app.player.shape.y +=app.player.velocity[1];
+    app.player.shape.pos +=app.player.velocity;
 }
 
 pub fn updateBuffers(app: *App,core: *mach.Core) void {
     const window = core.windows.getValue(app.window);
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]Rect{app.player.shape});
+    const rgpu= RectGPU{
+        .x= app.player.shape.pos[0],
+        .y= app.player.shape.pos[1],
+        .w= app.player.shape.size[0],
+        .h= app.player.shape.size[1],
+    };
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]RectGPU{rgpu});
     window.queue.writeBuffer(app.globals_buffer, 0, &[_]Globals{app.globals});
 }
 
