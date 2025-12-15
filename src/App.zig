@@ -26,6 +26,7 @@ player: T.Player,
 globals: T.Globals,
 player_buffer: *gpu.Buffer,
 globals_buffer: *gpu.Buffer,
+map: *T.MapArea = undefined,
 
 pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_tick = app_mod.id.tick;
@@ -53,6 +54,11 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         .globals_buffer = undefined,
         .bind_group = undefined,
     };
+    try app.setup();
+}
+
+fn setup(app:*App) !void{
+    app.map = try T.MapArea.init(std.heap.c_allocator);
 }
 
 fn setupBuffers(app:*App,window:anytype) *gpu.BindGroupLayout{
@@ -239,5 +245,14 @@ pub fn tick(app: *App, core: *mach.Core) void {
 }
 
 pub fn deinit(app: *App) void {
+    // 1. Release GPU Resources
+    // Order doesn't strictly matter for these, but good practice is reverse creation order
     app.pipeline.release();
+    app.bind_group.release();
+    // app.objects_buffer.release();
+    app.globals_buffer.release();
+
+    // 2. Release CPU Memory
+    // The map was allocated with c_allocator, so we free it with c_allocator
+    app.map.deinit(std.heap.c_allocator);
 }
