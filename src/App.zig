@@ -1,4 +1,5 @@
 const std = @import("std");
+const print = std.debug.print;
 const mach = @import("mach");
 const gpu = mach.gpu;
 pub fn F32U(value: u32) f32 {
@@ -77,9 +78,7 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     };
 }
 
-fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
-    var window = core.windows.getValue(window_id);
-    defer core.windows.setValueRaw(window_id, window);
+fn setupBuffers(app:*App,window:anytype) *gpu.BindGroupLayout{
     app.player_buffer = window.device.createBuffer(&.{
         .label = "player uniform buffer",
         .usage = .{ .uniform = true, .copy_dst = true },
@@ -116,7 +115,6 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
             },
         },
     }));
-    defer bind_group_layout.release();
     app.bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
         .label = "Bind groups",
         .layout = bind_group_layout,
@@ -135,6 +133,14 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
             },
         },
     }));
+    return bind_group_layout;
+}
+
+fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
+    var window = core.windows.getValue(window_id);
+    defer core.windows.setValueRaw(window_id, window);
+    var bind_group_layout = setupBuffers(app, &window);
+    defer bind_group_layout.release();
     // ADD THIS BLOCK:
     const pipeline_layout = window.device.createPipelineLayout(&gpu.PipelineLayout.Descriptor.init(.{
         .label = "pipeline layout",
