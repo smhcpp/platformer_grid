@@ -1,31 +1,8 @@
 const std = @import("std");
 const print = std.debug.print;
 const mach = @import("mach");
+const T = @import("types.zig");
 const gpu = mach.gpu;
-pub fn F32U(value: u32) f32 {
-    return @floatFromInt(value);
-}
-pub fn U32F(value: f32) u32 {
-    return @intFromFloat(value);
-}
-pub const Vec2 = @Vector(2, f32);
-pub const Globals = struct {
-    aspect_ratio: f32,
-};
-pub const RectGPU = packed struct {
-    x:f32,
-    y:f32,
-    w:f32,
-    h:f32,
-};
-pub const Rect = struct{
-    pos: Vec2,
-    size: Vec2,
-};
-pub const Player = struct {
-    shape: Rect,
-    velocity: Vec2,
-};
 const App = @This();
 
 pub const Modules = mach.Modules(.{
@@ -45,8 +22,8 @@ pub const main = mach.schedule(.{
 window: mach.ObjectID,
 pipeline: *gpu.RenderPipeline,
 bind_group: *gpu.BindGroup,
-player: Player,
-globals: Globals,
+player: T.Player,
+globals: T.Globals,
 player_buffer: *gpu.Buffer,
 globals_buffer: *gpu.Buffer,
 
@@ -82,13 +59,13 @@ fn setupBuffers(app:*App,window:anytype) *gpu.BindGroupLayout{
     app.player_buffer = window.device.createBuffer(&.{
         .label = "player uniform buffer",
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(RectGPU),
+        .size = @sizeOf(T.RectGPU),
         .mapped_at_creation = .false,
     });
     app.globals_buffer = window.device.createBuffer(&.{
         .label = "globals uniform buffer",
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(Globals),
+        .size = @sizeOf(T.Globals),
         .mapped_at_creation = .false,
     });
 
@@ -101,7 +78,7 @@ fn setupBuffers(app:*App,window:anytype) *gpu.BindGroupLayout{
                 .buffer = .{
                     .type = .uniform,
                     .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(RectGPU),
+                    .min_binding_size = @sizeOf(T.RectGPU),
                 },
             },
             .{
@@ -110,7 +87,7 @@ fn setupBuffers(app:*App,window:anytype) *gpu.BindGroupLayout{
                 .buffer = .{
                     .type = .uniform,
                     .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(Globals),
+                    .min_binding_size = @sizeOf(T.Globals),
                 },
             },
         },
@@ -123,13 +100,13 @@ fn setupBuffers(app:*App,window:anytype) *gpu.BindGroupLayout{
                 .binding = 0,
                 .buffer = app.player_buffer,
                 .offset = 0,
-                .size = @sizeOf(RectGPU),
+                .size = @sizeOf(T.RectGPU),
             },
             .{
                 .binding = 1,
                 .buffer = app.globals_buffer,
                 .offset = 0,
-                .size = @sizeOf(Globals),
+                .size = @sizeOf(T.Globals),
             },
         },
     }));
@@ -182,14 +159,14 @@ pub fn updateSystems(app: *App,core: *mach.Core) void {
 
 pub fn updateBuffers(app: *App,core: *mach.Core) void {
     const window = core.windows.getValue(app.window);
-    const rgpu= RectGPU{
+    const rgpu= T.RectGPU{
         .x= app.player.shape.pos[0],
         .y= app.player.shape.pos[1],
         .w= app.player.shape.size[0],
         .h= app.player.shape.size[1],
     };
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]RectGPU{rgpu});
-    window.queue.writeBuffer(app.globals_buffer, 0, &[_]Globals{app.globals});
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{rgpu});
+    window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
 }
 
 pub fn handleEvents(app: *App,core: *mach.Core) void {
