@@ -12,6 +12,7 @@ pub const Modules = mach.Modules(.{
 
 pub const mach_module = .app;
 pub const mach_systems = .{ .main, .init, .tick, .deinit };
+pub const UniformAlignment = 256;
 
 pub const main = mach.schedule(.{
     .{ mach.Core, .init },
@@ -21,12 +22,12 @@ pub const main = mach.schedule(.{
 
 window: mach.ObjectID,
 map_pipeline: *gpu.RenderPipeline,
-player_pipeline: *gpu.RenderPipeline,
+// player_pipeline: *gpu.RenderPipeline,
 map_bind_group: *gpu.BindGroup,
-player_bind_group: *gpu.BindGroup,
+// player_bind_group: *gpu.BindGroup,
 plats_buffer: *gpu.Buffer,
-player_buffer: *gpu.Buffer,
-globals_buffer: *gpu.Buffer,
+// player_buffer: *gpu.Buffer,
+// globals_buffer: *gpu.Buffer,
 
 player: T.Player,
 globals: T.Globals,
@@ -43,7 +44,7 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     app.* = .{
         .window = window,
         .map_pipeline = undefined,
-        .player_pipeline = undefined,
+        // .player_pipeline = undefined,
         .player = .{
             .shape = .{
                 .pos = .{ 0.0, 0.0 },
@@ -54,11 +55,11 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         .globals = .{
             .aspect_ratio = 1.0,
         },
-        .player_buffer = undefined,
+        // .player_buffer = undefined,
         .plats_buffer = undefined,
-        .globals_buffer = undefined,
+        // .globals_buffer = undefined,
         .map_bind_group = undefined,
-        .player_bind_group = undefined,
+        // .player_bind_group = undefined,
     };
     try app.setup();
 }
@@ -68,25 +69,25 @@ fn setup(app: *App) !void {
 }
 
 fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
-    app.player_buffer = window.device.createBuffer(&.{
-        .label = "player uniform buffer",
-        .usage = .{ .storage = true, .copy_dst = true },
-        .size = @sizeOf(T.RectGPU),
-        .mapped_at_creation = .false,
-    });
+    // app.player_buffer = window.device.createBuffer(&.{
+    //     .label = "player uniform buffer",
+    //     .usage = .{ .storage = true, .copy_dst = true },
+    //     .size = @sizeOf(T.RectGPU) * UniformAlignment,
+    //     .mapped_at_creation = .false,
+    // });
     app.plats_buffer = window.device.createBuffer(&.{
         .label = "platforms uniform buffer",
         .usage = .{ .storage = true, .copy_dst = true },
         .size = @sizeOf(T.RectGPU) * app.map.plats.len,
         .mapped_at_creation = .false,
     });
-    app.globals_buffer = window.device.createBuffer(&.{
-        .label = "globals uniform buffer",
-        .usage = .{ .uniform = true, .copy_dst = true },
-        // .size = @sizeOf(T.Globals),
-        .size =  256,
-        .mapped_at_creation = .false,
-    });
+    // app.globals_buffer = window.device.createBuffer(&.{
+    //     .label = "globals uniform buffer",
+    //     .usage = .{ .uniform = true, .copy_dst = true },
+    //     // .size = @sizeOf(T.Globals),
+    //     .size = UniformAlignment,
+    //     .mapped_at_creation = .false,
+    // });
 
     const bind_group_layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
         .label = "bind group layout",
@@ -97,18 +98,18 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
                 .buffer = .{
                     .type = .storage,
                     .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(T.RectGPU),
+                    .min_binding_size = @sizeOf(T.RectGPU) * app.map.plats.len,
                 },
             },
-            .{
-                .binding = 1,
-                .visibility = .{ .vertex = true, .fragment = true },
-                .buffer = .{
-                    .type = .uniform,
-                    .has_dynamic_offset = .false,
-                    .min_binding_size = @sizeOf(T.Globals),
-                },
-            },
+            // .{
+            //     .binding = 1,
+            //     .visibility = .{ .vertex = true, .fragment = true },
+            //     .buffer = .{
+            //         .type = .uniform,
+            //         .has_dynamic_offset = .false,
+            //         .min_binding_size = @sizeOf(T.Globals),
+            //     },
+            // },
         },
     }));
     // app.bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
@@ -129,20 +130,20 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     //         },
     //     },
     // }));
-    app.player_bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
-        .layout = bind_group_layout,
-        .entries = &.{
-            .{ .binding = 0, .buffer = app.player_buffer, .offset = 0, .size = @sizeOf(T.RectGPU) },
-            .{ .binding = 1, .buffer = app.globals_buffer, .offset = 0, .size = @sizeOf(T.Globals) },
-        },
-    }));
+    // app.player_bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
+    //     .layout = bind_group_layout,
+    //     .entries = &.{
+    //         .{ .binding = 0, .buffer = app.player_buffer, .offset = 0, .size = @sizeOf(T.RectGPU) * UniformAlignment },
+    //         // .{ .binding = 1, .buffer = app.globals_buffer, .offset = 0, .size = UniformAlignment },
+    //     },
+    // }));
 
     // Group B: Platforms
     app.map_bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
         .layout = bind_group_layout,
         .entries = &.{
             .{ .binding = 0, .buffer = app.plats_buffer, .offset = 0, .size = @sizeOf(T.RectGPU) * app.map.plats.len },
-            .{ .binding = 1, .buffer = app.globals_buffer, .offset = 0, .size = @sizeOf(T.Globals) },
+            // .{ .binding = 1, .buffer = app.globals_buffer, .offset = 0, .size = UniformAlignment },
         },
     }));
     return bind_group_layout;
@@ -184,21 +185,21 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         },
     };
     app.map_pipeline = window.device.createRenderPipeline(&map_desc);
-    // --- PIPELINE 2: PLAYER ---
-    const frag_player = gpu.FragmentState.init(.{
-        .module = shader_module,
-        .entry_point = "frag_player",
-        .targets = &.{color_target},
-    });
-    const player_desc = gpu.RenderPipeline.Descriptor{
-        .fragment = &frag_player,
-        .layout = pipeline_layout,
-        .vertex = gpu.VertexState{
-            .module = shader_module,
-            .entry_point = "vertex_player",
-        },
-    };
-    app.player_pipeline = window.device.createRenderPipeline(&player_desc);
+    // // --- PIPELINE 2: PLAYER ---
+    // const frag_player = gpu.FragmentState.init(.{
+    //     .module = shader_module,
+    //     .entry_point = "frag_player",
+    //     .targets = &.{color_target},
+    // });
+    // const player_desc = gpu.RenderPipeline.Descriptor{
+    //     .fragment = &frag_player,
+    //     .layout = pipeline_layout,
+    //     .vertex = gpu.VertexState{
+    //         .module = shader_module,
+    //         .entry_point = "vertex_player",
+    //     },
+    // };
+    // app.player_pipeline = window.device.createRenderPipeline(&player_desc);
 }
 
 pub fn updateSystems(app: *App, core: *mach.Core) void {
@@ -209,13 +210,13 @@ pub fn updateSystems(app: *App, core: *mach.Core) void {
 
 pub fn updateBuffers(app: *App, core: *mach.Core) void {
     const window = core.windows.getValue(app.window);
-    const rgpu = T.RectGPU{
-        .x = app.player.shape.pos[0],
-        .y = app.player.shape.pos[1],
-        .w = app.player.shape.size[0],
-        .h = app.player.shape.size[1],
-    };
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{rgpu});
+    // const rgpu = T.RectGPU{
+    //     .x = app.player.shape.pos[0],
+    //     .y = app.player.shape.pos[1],
+    //     .w = app.player.shape.size[0],
+    //     .h = app.player.shape.size[1],
+    // };
+    // window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{rgpu});
     var platforms: []T.RectGPU = undefined;
     var count: usize = 0;
     for (app.map.plats) |plat| {
@@ -228,7 +229,7 @@ pub fn updateBuffers(app: *App, core: *mach.Core) void {
         count += 1;
     }
     window.queue.writeBuffer(app.plats_buffer, 0, platforms[0..count]);
-    window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
+    // window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
 }
 
 pub fn handleEvents(app: *App, core: *mach.Core) void {
@@ -295,10 +296,10 @@ pub fn tick(app: *App, core: *mach.Core) void {
     render_pass.setBindGroup(0, app.map_bind_group, &.{});
     render_pass.draw(6, @intCast(app.map.plats.len), 0, 0);
 
-    // Draw Player
-    render_pass.setPipeline(app.player_pipeline);
-    render_pass.setBindGroup(0, app.player_bind_group, &.{});
-    render_pass.draw(6, 1, 0, 0);
+    // // Draw Player
+    // render_pass.setPipeline(app.player_pipeline);
+    // render_pass.setBindGroup(0, app.player_bind_group, &.{});
+    // render_pass.draw(6, 1, 0, 0);
 
     render_pass.end();
 
@@ -309,14 +310,14 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
 pub fn deinit(app: *App) void {
     app.map_pipeline.release();
-    app.player_pipeline.release();
+    // app.player_pipeline.release();
 
     app.map_bind_group.release();
-    app.player_bind_group.release();
+    // app.player_bind_group.release();
 
     app.plats_buffer.release();
-    app.player_buffer.release();
-    app.globals_buffer.release();
+    // app.player_buffer.release();
+    // app.globals_buffer.release();
 
     app.map.deinit(std.heap.c_allocator);
 }
