@@ -12,13 +12,10 @@ pub const Rect = struct {
     pos: Vec2,
     size: Vec2,
 };
-pub const Globals = extern struct {
+pub const Globals = struct {
     aspect_ratio: f32,
-    padding: f32 = 0,
-    padding2: f32 = 0,
-    padding3: f32 = 0,
 };
-pub const RectGPU = extern struct {
+pub const RectGPU = packed struct {
     x: f32,
     y: f32,
     w: f32,
@@ -35,7 +32,7 @@ pub const Platform = struct {
 };
 
 pub const MapArea = struct {
-    plats: [4]Platform = undefined,
+    platforms: [4]Platform = undefined,
     pub fn init(allocator: std.mem.Allocator) !*MapArea {
         const m = try allocator.create(MapArea);
         m.* = .{};
@@ -49,16 +46,16 @@ pub const MapArea = struct {
     }
 
     fn setup(map: *MapArea) !void {
-        map.plats[0] = .{
+        map.platforms[0] = .{
             .shape = .{ .pos = .{ -0.4, 0 }, .size = .{ 0.1, 0.1 } },
         };
-        map.plats[1] = .{
+        map.platforms[1] = .{
             .shape = .{ .pos = .{ 0, -0.2 }, .size = .{ 0.1, 0.2 } },
         };
-        map.plats[2] = .{
+        map.platforms[2] = .{
             .shape = .{ .pos = .{ 0, 0.2 }, .size = .{ 0.1, 0.1 } },
         };
-        map.plats[3] = .{
+        map.platforms[3] = .{
             .shape = .{ .pos = .{ 0, -0.3 }, .size = .{ 0.1, 0.1 } },
         };
     }
