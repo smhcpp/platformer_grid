@@ -14,9 +14,9 @@ pub const Rect = struct {
 };
 pub const Globals = extern struct {
     aspect_ratio: f32,
-    padding: f32 = 0,
-    padding2: f32 = 0,
-    padding3: f32 = 0,
+    padding: f32 = 0.0,
+    padding2: f32 = 0.0,
+    padding3: f32 = 0.0,
 };
 pub const RectGPU = extern struct {
     x: f32,

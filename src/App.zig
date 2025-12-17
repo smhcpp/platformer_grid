@@ -7,6 +7,7 @@ const App = @This();
 pub const Modules = mach.Modules(.{ mach.Core, App });
 pub const mach_module = .app;
 pub const mach_systems = .{ .main, .init, .tick, .deinit };
+pub const UniformSize = 256;
 pub const main = mach.schedule(.{
     .{ mach.Core, .init },
     .{ App, .init },
@@ -15,9 +16,11 @@ pub const main = mach.schedule(.{
 
 window: mach.ObjectID,
 map_pipeline: *gpu.RenderPipeline,
+player_pipeline: *gpu.RenderPipeline,
 bind_group: *gpu.BindGroup, // For Globals
 
-plats_buffer: *gpu.Buffer,   // Vertex Buffer (Instance Data)
+plats_buffer: *gpu.Buffer, // Vertex Buffer (Instance Data)
+player_buffer: *gpu.Buffer, // Vertex Buffer (Instance Data)
 globals_buffer: *gpu.Buffer, // Uniform Buffer
 
 player: T.Player,
@@ -31,10 +34,12 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     app.* = .{
         .window = window,
         .map_pipeline = undefined,
+        .player_pipeline = undefined,
         .bind_group = undefined,
         .plats_buffer = undefined,
+        .player_buffer = undefined,
         .globals_buffer = undefined,
-        .player = .{ .shape = .{ .pos = .{ 0,  0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
+        .player = .{ .shape = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
         .globals = .{ .aspect_ratio = 1.0 },
     };
     try app.setup();
@@ -48,7 +53,13 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     app.globals_buffer = window.device.createBuffer(&.{
         .label = "globals uniform",
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = 256,
+        .size = UniformSize,
+        .mapped_at_creation = .false,
+    });
+    app.player_buffer = window.device.createBuffer(&.{
+        .label = "player uniform",
+        .usage = .{ .uniform = true, .copy_dst = true },
+        .size = UniformSize,
         .mapped_at_creation = .false,
     });
     const plat_size = @max(16, @sizeOf(T.RectGPU) * app.map.plats.len);
@@ -60,17 +71,15 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     });
     const layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
         .entries = &.{
-            .{
-                .binding = 0,
-                .visibility = .{ .vertex = true },
-                .buffer = .{ .type = .uniform, .min_binding_size = @sizeOf(T.Globals) }
-            },
+            .{ .binding = 0, .visibility = .{ .vertex = true }, .buffer = .{ .type = .uniform, .min_binding_size = @sizeOf(T.Globals) } },
+            .{ .binding = 1, .visibility = .{ .vertex = true }, .buffer = .{ .type = .uniform, .min_binding_size = @sizeOf(T.RectGPU) } },
         },
     }));
     app.bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
         .layout = layout,
         .entries = &.{
-            .{ .binding = 0, .buffer = app.globals_buffer, .offset = 0, .size = 256 },
+            .{ .binding = 0, .buffer = app.globals_buffer, .offset = 0, .size = UniformSize },
+            .{ .binding = 1, .buffer = app.player_buffer, .offset = 0, .size = UniformSize },
         },
     }));
     return layout;
@@ -85,8 +94,10 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         .bind_group_layouts = &.{bind_group_layout},
     }));
     defer pipeline_layout.release();
-    const shader_module = window.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
-    defer shader_module.release();
+    const player_module = window.device.createShaderModuleWGSL("player.wgsl", @embedFile("player.wgsl"));
+    defer player_module.release();
+    const map_module = window.device.createShaderModuleWGSL("map.wgsl", @embedFile("map.wgsl"));
+    defer map_module.release();
     const blend = gpu.BlendState{};
     const color_target = gpu.ColorTargetState{
         .format = window.framebuffer_format,
@@ -104,15 +115,29 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         },
     };
 
-    const frag_map = gpu.FragmentState.init(.{ .module = shader_module, .entry_point = "frag_map", .targets = &.{color_target} });
+    const frag_map = gpu.FragmentState.init(.{ .module = map_module, .entry_point = "frag_main", .targets = &.{color_target} });
+    const frag_player = gpu.FragmentState.init(.{ .module = player_module, .entry_point = "frag_main", .targets = &.{color_target} });
 
+    // Map pipeline
     app.map_pipeline = window.device.createRenderPipeline(&gpu.RenderPipeline.Descriptor{
         .fragment = &frag_map,
         .layout = pipeline_layout,
         .vertex = gpu.VertexState{
-            .module = shader_module,
-            .entry_point = "vertex_map",
-            .buffers = &vertex_layouts, // <--- Attach Layout
+            .module = map_module,
+            .entry_point = "vertex_main",  // ← Same vertex shader!
+            .buffers = &vertex_layouts,
+            .buffer_count = 1,
+        },
+    });
+
+    // Player pipeline
+    app.player_pipeline = window.device.createRenderPipeline(&gpu.RenderPipeline.Descriptor{
+        .fragment = &frag_player,
+        .layout = pipeline_layout,
+        .vertex = gpu.VertexState{
+            .module = player_module,
+            .entry_point = "vertex_main",  // ← Same vertex shader!
+            .buffers = &vertex_layouts,
             .buffer_count = 1,
         },
     });
@@ -138,6 +163,12 @@ pub fn updateBuffers(app: *App, core: *mach.Core) void {
     }
     window.queue.writeBuffer(app.plats_buffer, 0, platforms[0..count]);
     window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{.{
+        .x = app.player.shape.pos[0],
+        .y = app.player.shape.pos[1],
+        .w = app.player.shape.size[0],
+        .h = app.player.shape.size[1],
+    }});
 }
 
 pub fn handleEvents(app: *App, core: *mach.Core) void {
@@ -163,7 +194,8 @@ pub fn tick(app: *App, core: *mach.Core) void {
         .color_attachments = &.{gpu.RenderPassColorAttachment{
             .view = back_buffer_view,
             .clear_value = gpu.Color{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 },
-            .load_op = .clear, .store_op = .store,
+            .load_op = .clear,
+            .store_op = .store,
         }},
     }));
     defer render_pass.release();
@@ -173,6 +205,11 @@ pub fn tick(app: *App, core: *mach.Core) void {
     render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.map.plats.len);
     render_pass.draw(6, @intCast(app.map.plats.len), 0, 0);
 
+    render_pass.setPipeline(app.player_pipeline); // Switch pipeline
+    render_pass.setBindGroup(0, app.bind_group, &.{}); // Globals are same
+    render_pass.setVertexBuffer(0, app.player_buffer, 0, @sizeOf(T.RectGPU));
+    render_pass.draw(6, 1, 0, 0);
+
     render_pass.end();
     var command = encoder.finish(&.{});
     defer command.release();
@@ -181,6 +218,7 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
 pub fn deinit(app: *App) void {
     app.map_pipeline.release();
+    app.player_pipeline.release();
     app.bind_group.release();
     app.plats_buffer.release();
     app.globals_buffer.release();
