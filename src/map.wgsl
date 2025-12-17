@@ -15,8 +15,12 @@ struct VertexOut {
     let h = rect_data.w;
 
     var positions = array<vec2<f32>, 6>(
-        vec2(x, y), vec2(x, y+h), vec2(x+w, y),
-        vec2(x+w, y), vec2(x, y+h), vec2(x+w, y+h)
+        vec2(x, y),
+        vec2(x, y+h),
+        vec2(x+w, y),
+        vec2(x+w, y),
+        vec2(x, y+h),
+        vec2(x+w, y+h)
     );
 
     var out: VertexOut;

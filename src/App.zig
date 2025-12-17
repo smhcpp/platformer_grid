@@ -9,6 +9,7 @@ pub const mach_module = .app;
 pub const mach_systems = .{ .main, .init, .tick, .deinit };
 pub const UniformSize = 256;
 
+
 pub const main = mach.schedule(.{
     .{ mach.Core, .init },
     .{ App, .init },
@@ -143,13 +144,14 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
 }
 
 pub fn updateSystems(app: *App, core: *mach.Core) void {
+    app.player.shape.pos += app.player.velocity;
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
 }
 
 pub fn updateBuffers(app: *App, core: *mach.Core) void {
     const window = core.windows.getValue(app.window);
-    var platforms: [4]T.RectGPU = undefined;
+    var platforms: [T.MapArea.PlatNum]T.RectGPU = undefined;
     var count: usize = 0;
     for (app.map.plats) |plat| {
         platforms[count] = .{
@@ -171,10 +173,29 @@ pub fn updateBuffers(app: *App, core: *mach.Core) void {
 }
 
 pub fn handleEvents(app: *App, core: *mach.Core) void {
+    const speed = 0.02;
     while (core.nextEvent()) |event| {
         switch (event) {
             .window_open => |ev| try setupPipeline(core, app, ev.window_id),
             .close => core.exit(),
+            .key_press => |ev| {
+                switch (ev.key) {
+                    .left => app.player.velocity[0] = -speed,
+                    .right => app.player.velocity[0] = speed,
+                    .up => app.player.velocity[1] = speed,
+                    .down => app.player.velocity[1] = -speed,
+                    else => {},
+                }
+            },
+            .key_release => |ev| {
+                switch (ev.key) {
+                    .left => app.player.velocity[0] = 0,
+                    .right => app.player.velocity[0] = 0,
+                    .up => app.player.velocity[1] = 0,
+                    .down => app.player.velocity[1] = 0,
+                    else => {},
+                }
+            },
             else => {},
         }
     }
