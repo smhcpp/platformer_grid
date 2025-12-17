@@ -155,10 +155,10 @@ pub fn updateBuffers(app: *App, core: *mach.Core) void {
     var count: usize = 0;
     for (app.map.plats) |plat| {
         platforms[count] = .{
-            .x = plat.shape.pos[0],
-            .y = plat.shape.pos[1],
-            .w = plat.shape.size[0],
-            .h = plat.shape.size[1],
+            .x = plat.aabb.pos[0],
+            .y = plat.aabb.pos[1],
+            .w = plat.aabb.size[0],
+            .h = plat.aabb.size[1],
         };
         count += 1;
     }

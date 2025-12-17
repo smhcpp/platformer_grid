@@ -1,4 +1,6 @@
 const std = @import("std");
+const print = std.debug.print;
+const BVH = @import("bvh.zig").BVH;
 const mach = @import("mach");
 const gpu = mach.gpu;
 pub const Vec2 = @Vector(2, f32);
@@ -15,7 +17,7 @@ pub const Rect = struct {
     pos: Vec2,
     size: Vec2,
     pub fn center(rect: Rect) Vec2 {
-        return rect.pos + rect.size / 2;
+        return rect.pos + rect.size / Vec2{2, 2};
     }
 };
 
@@ -41,18 +43,19 @@ pub const Player = struct {
 
 pub const Platform = struct {
     pub const Color: gpu.Color = .{ .r = 0.5, .g = 0.5, .b = 0.5, .a = 1.0 };
-    shape: Rect,
+    aabb: Rect,
 };
 
 pub const MapArea = struct {
     pub const PlatNum = 4;
+    plats_bvh: *BVH=undefined,
     // this array is going to be replaced with
     // a bvh structure!
     plats: [PlatNum]Platform = undefined,
     pub fn init(allocator: std.mem.Allocator) !*MapArea {
         const m = try allocator.create(MapArea);
         m.* = .{};
-        try m.setup();
+        try m.setup(allocator);
         return m;
     }
 
@@ -61,18 +64,23 @@ pub const MapArea = struct {
         allocator.destroy(map);
     }
 
-    fn setup(map: *MapArea) !void {
+    fn setup(map: *MapArea, allocator: std.mem.Allocator) !void {
+        map.plats_bvh = try BVH.init(allocator);
         map.plats[0] = .{
-            .shape = .{ .pos = .{ -0.5, 0.5 }, .size = .{ 0.3, 0.2 } },
+            .aabb = .{ .pos = .{ -0.5, 0.5 }, .size = .{ 0.3, 0.2 } },
         };
         map.plats[1] = .{
-            .shape = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } },
+            .aabb = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } },
         };
         map.plats[2] = .{
-            .shape = .{ .pos = .{ 0, 0.3 }, .size = .{ 0.4, 0.1 } },
+            .aabb = .{ .pos = .{ 0, 0.3 }, .size = .{ 0.4, 0.1 } },
         };
         map.plats[3] = .{
-            .shape = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } },
+            .aabb = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } },
         };
+        for (map.plats) |plat| {
+            try map.plats_bvh.insert(plat);
+        }
+        print("Here is BVH tree: {any}\n", .{map.plats_bvh});
     }
 };
