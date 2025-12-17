@@ -17,8 +17,12 @@ struct VertexOut {
     let h = rect_data.w;
 
     var positions = array<vec2<f32>, 6>(
-        vec2(x, y), vec2(x, y+h), vec2(x+w, y),
-        vec2(x+w, y), vec2(x, y+h), vec2(x+w, y+h)
+        vec2(x, y),
+        vec2(x, y+h),
+        vec2(x+w, y),
+        vec2(x+w, y),
+        vec2(x, y+h),
+        vec2(x+w, y+h)
     );
 
     var out: VertexOut;
@@ -41,10 +45,10 @@ struct VertexOut {
     let clamped_y = clamp(in.uv.y, spine_bot, spine_top);
     let closest = vec2<f32>(center_x, clamped_y);
 
-    let dx = (in.uv.x - closest.x) * globals.aspect_ratio;
+    let dx = (in.uv.x - closest.x);
     let dy = in.uv.y - closest.y;
-    let dist = sqrt(dx * dx + dy * dy);
+    let dist2 = dx * dx + dy * dy;
 
-    if (dist > radius) { discard; }
-    return vec4<f32>(1.0, 0.2, 0.2, 1.0);
+    if (dist2 > radius * radius) { discard; }
+    return vec4<f32>(0, 0, 1, 1);
 }

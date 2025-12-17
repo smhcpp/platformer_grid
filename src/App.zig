@@ -8,6 +8,7 @@ pub const Modules = mach.Modules(.{ mach.Core, App });
 pub const mach_module = .app;
 pub const mach_systems = .{ .main, .init, .tick, .deinit };
 pub const UniformSize = 256;
+
 pub const main = mach.schedule(.{
     .{ mach.Core, .init },
     .{ App, .init },
@@ -17,11 +18,11 @@ pub const main = mach.schedule(.{
 window: mach.ObjectID,
 map_pipeline: *gpu.RenderPipeline,
 player_pipeline: *gpu.RenderPipeline,
-bind_group: *gpu.BindGroup, // For Globals
+bind_group: *gpu.BindGroup,
 
-plats_buffer: *gpu.Buffer, // Vertex Buffer (Instance Data)
-player_buffer: *gpu.Buffer, // Vertex Buffer (Instance Data)
-globals_buffer: *gpu.Buffer, // Uniform Buffer
+plats_buffer: *gpu.Buffer,
+player_buffer: *gpu.Buffer,
+globals_buffer: *gpu.Buffer,
 
 player: T.Player,
 globals: T.Globals,
@@ -65,7 +66,7 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     const plat_size = @max(16, @sizeOf(T.RectGPU) * app.map.plats.len);
     app.plats_buffer = window.device.createBuffer(&.{
         .label = "platforms vertex",
-        .usage = .{ .vertex = true, .copy_dst = true }, // <--- VERTEX
+        .usage = .{ .vertex = true, .copy_dst = true },
         .size = plat_size,
         .mapped_at_creation = .false,
     });
@@ -107,7 +108,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     const vertex_layouts = [_]gpu.VertexBufferLayout{
         .{
             .array_stride = @sizeOf(T.RectGPU),
-            .step_mode = .instance, // <--- IMPORTANT
+            .step_mode = .instance,
             .attribute_count = 1,
             .attributes = &[_]gpu.VertexAttribute{
                 .{ .format = .float32x4, .offset = 0, .shader_location = 0 },
@@ -118,25 +119,23 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     const frag_map = gpu.FragmentState.init(.{ .module = map_module, .entry_point = "frag_main", .targets = &.{color_target} });
     const frag_player = gpu.FragmentState.init(.{ .module = player_module, .entry_point = "frag_main", .targets = &.{color_target} });
 
-    // Map pipeline
     app.map_pipeline = window.device.createRenderPipeline(&gpu.RenderPipeline.Descriptor{
         .fragment = &frag_map,
         .layout = pipeline_layout,
         .vertex = gpu.VertexState{
             .module = map_module,
-            .entry_point = "vertex_main",  // ← Same vertex shader!
+            .entry_point = "vertex_main",
             .buffers = &vertex_layouts,
             .buffer_count = 1,
         },
     });
 
-    // Player pipeline
     app.player_pipeline = window.device.createRenderPipeline(&gpu.RenderPipeline.Descriptor{
         .fragment = &frag_player,
         .layout = pipeline_layout,
         .vertex = gpu.VertexState{
             .module = player_module,
-            .entry_point = "vertex_main",  // ← Same vertex shader!
+            .entry_point = "vertex_main",
             .buffers = &vertex_layouts,
             .buffer_count = 1,
         },
@@ -205,8 +204,8 @@ pub fn tick(app: *App, core: *mach.Core) void {
     render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.map.plats.len);
     render_pass.draw(6, @intCast(app.map.plats.len), 0, 0);
 
-    render_pass.setPipeline(app.player_pipeline); // Switch pipeline
-    render_pass.setBindGroup(0, app.bind_group, &.{}); // Globals are same
+    render_pass.setPipeline(app.player_pipeline);
+    render_pass.setBindGroup(0, app.bind_group, &.{});
     render_pass.setVertexBuffer(0, app.player_buffer, 0, @sizeOf(T.RectGPU));
     render_pass.draw(6, 1, 0, 0);
 
