@@ -1,6 +1,7 @@
 const std = @import("std");
 const print = std.debug.print;
 const BVH = @import("bvh.zig").BVH;
+const bvh_ = @import("bvh.zig");
 const mach = @import("mach");
 const gpu = mach.gpu;
 pub const Vec2 = @Vector(2, f32);
@@ -81,6 +82,6 @@ pub const MapArea = struct {
         for (map.plats) |plat| {
             try map.plats_bvh.insert(plat);
         }
-        print("Here is BVH tree: {any}\n", .{map.plats_bvh});
+        // map.plats_bvh.printBVH();
     }
 };
