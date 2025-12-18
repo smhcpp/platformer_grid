@@ -35,6 +35,11 @@ pub const BVH = struct {
         if (node.data) |_| {
             const existing = node.data.?;
             node.data = null;
+            // is_horizontal should be determined by checking if the new node collides the aabb of this node!
+            // no just simply dividing the bigger axis!
+            // we should pass down the axis of separation not is_horizontal
+            // axis of separation is the axis in which there is a separation between
+            // new platform and the aabb of the current processing one.
             const is_horizontal = node.aabb.size[0] >= node.aabb.size[1];
             try bvh.insertIntoChildren(node, existing, is_horizontal);
             try bvh.insertIntoChildren(node, platform, is_horizontal);
@@ -71,6 +76,15 @@ pub const BVH = struct {
         } else {
             std.debug.print("  (empty)\n", .{});
         }
+    }
+
+    pub fn getAABBs(bvh: *BVH) ![]const T.RectGPU {
+        var aabbs = std.ArrayList(T.RectGPU).init(bvh.allocator);
+        defer aabbs.deinit();
+        if (bvh.root) |root| {
+            try getAABBsRecursive(root, &aabbs);
+        }
+        return aabbs.toOwnedSlice();
     }
 
     fn createLeaf(bvh: *BVH, platform: T.Platform) !*TreeNode {
@@ -118,27 +132,43 @@ pub fn getExtendedAABB(rect1: T.Rect, rect2: T.Rect) T.Rect {
     return T.Rect{ .pos = .{ minx, miny }, .size = .{ maxx - minx, maxy - miny } };
 }
 
+fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) std.mem.Allocator.Error!void {
+    if (node.isLeaf()) return;
+    try aabbs.append(.{
+        .x = node.aabb.pos[0],
+        .y = node.aabb.pos[1],
+        .w = node.aabb.size[0],
+        .h = node.aabb.size[1],
+    });
+    if (node.child_tr) |tr| {
+        try getAABBsRecursive(tr, aabbs);
+    }
+    if (node.child_bl) |bl| {
+        try getAABBsRecursive(bl, aabbs);
+    }
+}
+
 fn printNode(node: *const TreeNode, prefix: []const u8, is_last: bool, depth: usize, max_depth: usize) void {
     if (depth >= max_depth) {
-        std.debug.print("{s}{s}...(max depth reached)\n", .{prefix, if (is_last) "--- " else "|---"});
+        std.debug.print("{s}{s}...(max depth reached)\n", .{ prefix, if (is_last) "--- " else "|---" });
         return;
     }
     const connector = if (is_last) "--- " else "|---";
     if (node.data) |plat| {
         std.debug.print("{s}{s}LEAF: pos=({d:.2},{d:.2}) size=({d:.2},{d:.2})\n", .{
-            prefix, connector,
-            plat.aabb.pos[0], plat.aabb.pos[1],
+            prefix,            connector,
+            plat.aabb.pos[0],  plat.aabb.pos[1],
             plat.aabb.size[0], plat.aabb.size[1],
         });
     } else {
         std.debug.print("{s}{s}BRANCH: aabb pos=({d:.2},{d:.2}) size=({d:.2},{d:.2})\n", .{
-            prefix, connector,
-            node.aabb.pos[0], node.aabb.pos[1],
+            prefix,            connector,
+            node.aabb.pos[0],  node.aabb.pos[1],
             node.aabb.size[0], node.aabb.size[1],
         });
         const extension = if (is_last) "    " else "|   ";
         var new_prefix_buf: [1024]u8 = undefined;
-        const new_prefix = std.fmt.bufPrint(&new_prefix_buf, "{s}{s}", .{prefix, extension}) catch prefix;
+        const new_prefix = std.fmt.bufPrint(&new_prefix_buf, "{s}{s}", .{ prefix, extension }) catch prefix;
         const has_bl = node.child_bl != null;
         const has_tr = node.child_tr != null;
         if (has_tr) {

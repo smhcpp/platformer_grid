@@ -48,7 +48,7 @@ pub const Platform = struct {
 };
 
 pub const MapArea = struct {
-    pub const PlatNum = 4;
+    pub const PlatNum = 8;
     plats_bvh: *BVH=undefined,
     // this array is going to be replaced with
     // a bvh structure!
@@ -68,7 +68,7 @@ pub const MapArea = struct {
     fn setup(map: *MapArea, allocator: std.mem.Allocator) !void {
         map.plats_bvh = try BVH.init(allocator);
         map.plats[0] = .{
-            .aabb = .{ .pos = .{ -0.5, 0.5 }, .size = .{ 0.3, 0.2 } },
+            .aabb = .{ .pos = .{ -0.8, 0.3 }, .size = .{ 0.3, 0.2 } },
         };
         map.plats[1] = .{
             .aabb = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } },
@@ -79,9 +79,21 @@ pub const MapArea = struct {
         map.plats[3] = .{
             .aabb = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } },
         };
+        map.plats[4] = .{
+            .aabb = .{ .pos = .{ -0.5, -0.7 }, .size = .{ 0.2, 0.3 } },
+        };
+        map.plats[5] = .{
+            .aabb = .{ .pos = .{- 0.3, -0.3 }, .size = .{ 0.1, 0.2 } },
+        };
+        map.plats[6] = .{
+            .aabb = .{ .pos = .{ -0.5, 0.6 }, .size = .{ 0.1, 0.2 } },
+        };
+        map.plats[7] = .{
+            .aabb = .{ .pos = .{ 0.5, 0.8 }, .size = .{ 0.1, 0.1 } },
+        };
         for (map.plats) |plat| {
             try map.plats_bvh.insert(plat);
         }
-        // map.plats_bvh.printBVH();
+        map.plats_bvh.printBVH();
     }
 };
