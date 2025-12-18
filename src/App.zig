@@ -70,11 +70,11 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     });
     app.player_buffer = window.device.createBuffer(&.{
         .label = "player uniform",
-        .usage = .{ .uniform = true, .copy_dst = true },
+        .usage = .{ .uniform = true, .vertex = true, .copy_dst = true },
         .size = UniformSize,
         .mapped_at_creation = .false,
     });
-    const plat_size = @max(16, @sizeOf(T.RectGPU) * app.map.plats.len);
+    const plat_size = @max(16, @sizeOf(T.RectGPU) * T.MapArea.MaxPlatformNumber);
     app.plats_buffer = window.device.createBuffer(&.{
         .label = "platforms vertex",
         .usage = .{ .vertex = true, .copy_dst = true },
@@ -84,7 +84,7 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     app.bvh_buffer = window.device.createBuffer(&.{
         .label = "bvh vertex",
         .usage = .{ .vertex = true, .copy_dst = true },
-        .size = 7 * @sizeOf(T.RectGPU),
+        .size = (T.MapArea.MaxPlatformNumber - 1) * @sizeOf(T.RectGPU),
         .mapped_at_creation = .false,
     });
     const layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
@@ -183,21 +183,12 @@ pub fn updateSystems(app: *App, core: *mach.Core) void {
 
 pub fn updateBuffers(app: *App, core: *mach.Core) !void {
     const window = core.windows.getValue(app.window);
-    var platforms: [T.MapArea.PlatNum]T.RectGPU = undefined;
-    var count: usize = 0;
-    for (app.map.plats) |plat| {
-        platforms[count] = .{
-            .x = plat.aabb.pos[0],
-            .y = plat.aabb.pos[1],
-            .w = plat.aabb.size[0],
-            .h = plat.aabb.size[1],
-        };
-        count += 1;
-    }
-    const aabbs: []const T.RectGPU = try app.map.plats_bvh.getAABBs();
+    const platforms = try app.map.bvh.getPlatforms();
+    const aabbs = try app.map.bvh.getAABBs();
+    defer app.map.bvh.allocator.free(aabbs);
     // print("aabbs: {any}\n", .{aabbs});
-    window.queue.writeBuffer(app.plats_buffer, 0, platforms[0..count]);
-    window.queue.writeBuffer(app.bvh_buffer, 0, aabbs);
+    window.queue.writeBuffer(app.plats_buffer, 0, platforms[0..platforms.len]);
+    window.queue.writeBuffer(app.bvh_buffer, 0, aabbs[0..aabbs.len]);
     window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
     window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{.{
         .x = app.player.shape.pos[0],
@@ -259,18 +250,18 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
     render_pass.setPipeline(app.map_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.map.plats.len);
-    render_pass.draw(6, @intCast(app.map.plats.len), 0, 0);
+    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * T.MapArea.MaxPlatformNumber);
+    render_pass.draw(6, @intCast(T.MapArea.MaxPlatformNumber), 0, 0);
+
+    render_pass.setPipeline(app.bvh_pipeline);
+    render_pass.setBindGroup(0, app.bind_group, &.{});
+    render_pass.setVertexBuffer(0, app.bvh_buffer, 0, (T.MapArea.MaxPlatformNumber - 1) * @sizeOf(T.RectGPU));
+    render_pass.draw(8, T.MapArea.MaxPlatformNumber - 1, 0, 0);
 
     render_pass.setPipeline(app.player_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
     render_pass.setVertexBuffer(0, app.player_buffer, 0, @sizeOf(T.RectGPU));
     render_pass.draw(6, 1, 0, 0);
-
-    render_pass.setPipeline(app.bvh_pipeline);
-    render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.bvh_buffer, 0, 7 * @sizeOf(T.RectGPU));
-    render_pass.draw(8, 7, 0, 0);
 
     render_pass.end();
     var command = encoder.finish(&.{});

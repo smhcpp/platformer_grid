@@ -18,7 +18,7 @@ pub const Rect = struct {
     pos: Vec2,
     size: Vec2,
     pub fn center(rect: Rect) Vec2 {
-        return rect.pos + rect.size / Vec2{2, 2};
+        return rect.pos + rect.size / Vec2{ 2, 2 };
     }
 };
 
@@ -39,7 +39,7 @@ pub const RectGPU = extern struct {
 pub const Player = struct {
     shape: Rect,
     velocity: Vec2,
-    vision_radius:f32=0.4,
+    vision_radius: f32 = 0.4,
 };
 
 pub const Platform = struct {
@@ -48,11 +48,8 @@ pub const Platform = struct {
 };
 
 pub const MapArea = struct {
-    pub const PlatNum = 8;
-    plats_bvh: *BVH=undefined,
-    // this array is going to be replaced with
-    // a bvh structure!
-    plats: [PlatNum]Platform = undefined,
+    pub const MaxPlatformNumber = 8;
+    bvh: *BVH = undefined,
     pub fn init(allocator: std.mem.Allocator) !*MapArea {
         const m = try allocator.create(MapArea);
         m.* = .{};
@@ -61,39 +58,39 @@ pub const MapArea = struct {
     }
 
     pub fn deinit(map: *MapArea, allocator: std.mem.Allocator) void {
-        // allocator.free(map.platforms);
+        map.bvh.deinit(allocator);
         allocator.destroy(map);
     }
 
     fn setup(map: *MapArea, allocator: std.mem.Allocator) !void {
-        map.plats_bvh = try BVH.init(allocator);
-        map.plats[0] = .{
+        // map.bvh = try BVH.init(allocator);
+        var plats = std.ArrayList(Platform).init(allocator);
+        defer plats.deinit();
+        try plats.append(.{
             .aabb = .{ .pos = .{ -0.8, 0.3 }, .size = .{ 0.3, 0.2 } },
-        };
-        map.plats[1] = .{
+        });
+        try plats.append(.{
             .aabb = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } },
-        };
-        map.plats[2] = .{
+        });
+        try plats.append(.{
             .aabb = .{ .pos = .{ 0, 0.3 }, .size = .{ 0.4, 0.1 } },
-        };
-        map.plats[3] = .{
+        });
+        try plats.append(.{
             .aabb = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } },
-        };
-        map.plats[4] = .{
+        });
+        try plats.append(.{
             .aabb = .{ .pos = .{ -0.5, -0.7 }, .size = .{ 0.2, 0.3 } },
-        };
-        map.plats[5] = .{
-            .aabb = .{ .pos = .{- 0.3, -0.3 }, .size = .{ 0.1, 0.2 } },
-        };
-        map.plats[6] = .{
+        });
+        try plats.append(.{
+            .aabb = .{ .pos = .{ -0.3, -0.3 }, .size = .{ 0.1, 0.2 } },
+        });
+        try plats.append(.{
             .aabb = .{ .pos = .{ -0.5, 0.6 }, .size = .{ 0.1, 0.2 } },
-        };
-        map.plats[7] = .{
+        });
+        try plats.append(.{
             .aabb = .{ .pos = .{ 0.5, 0.8 }, .size = .{ 0.1, 0.1 } },
-        };
-        for (map.plats) |plat| {
-            try map.plats_bvh.insert(plat);
-        }
-        map.plats_bvh.printBVH();
+        });
+        const plat_list = try plats.toOwnedSlice();
+        map.bvh = try BVH.init(allocator, plat_list);
     }
 };
