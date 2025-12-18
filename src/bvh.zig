@@ -26,74 +26,91 @@ pub const BVH = struct {
         if (bvh.root) |root| {
             try bvh.insertRecursive(root, platform);
         } else {
-            bvh.root = try bvh.createLeaf(platform, null);
+            bvh.root = try bvh.createNode(platform, null);
         }
     }
 
-    fn branchOut(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
-        node.left = try bvh.createLeaf(platform, node);
+    fn splitLeaf(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
         const old_platform = node.data.?;
-        node.right = try bvh.createLeaf(old_platform, node);
         node.data = null;
+        node.left = try bvh.createNode(platform, node);
+        node.right = try bvh.createNode(old_platform, node);
         node.aabb = getMergedAABB(node.left.?.aabb, node.right.?.aabb);
     }
 
     fn insertRecursive(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
         if (node.isLeaf()) {
-            try bvh.branchOut(node, platform);
+            try bvh.splitLeaf(node, platform);
             return;
         }
-        const node_cost = getAABBCost(node.aabb);
-        const platform_cost = getAABBCost(platform.aabb);
+        const area_current = getAABBCost(node.aabb);
         const merged_aabb = getMergedAABB(node.aabb, platform.aabb);
-        const merge_cost = getAABBCost(merged_aabb);
-        if (merge_cost < node_cost + platform_cost) {
+        const area_merged = getAABBCost(merged_aabb);
+        const cost_sibling = area_merged;
+        const cost_merge = (area_merged - area_current) * 2.0;
+        if (cost_merge < cost_sibling) {
             node.aabb = merged_aabb;
             try bvh.insertIntoChildren(node, platform);
         } else {
-            bvh.insertSibling(node, platform);
+            try bvh.insertSibling(node, platform);
         }
     }
 
     fn insertSibling(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
-        if (node.parent==null){
-            // this node will contain the platform and what ever
-            // that was inside of it as children
-            return;
-        }
-        const parent_node = node.parent.?;
-        if (node == parent_node.left.?) {
-            parent_node.left = try bvh.createEmptyChild(parent_node);
-            parent_node.left.?.right = try bvh.createLeaf(platform, parent_node.left);
-            parent_node.left.?.left = node;
-            parent_node.left.?.aabb = getMergedAABB(node.aabb, platform.aabb);
+        const old_parent = node.parent;
+        const new_branch = try bvh.createBranch(old_parent);
+        const new_leaf = try bvh.createNode(platform, new_branch);
+        new_branch.left = new_leaf;
+        new_branch.right = node; // The old node becomes a child
+        new_branch.aabb = getMergedAABB(new_leaf.aabb, node.aabb);
+        node.parent = new_branch;
+        if (old_parent) |parent| {
+            if (parent.left == node) {
+                parent.left = new_branch;
+            } else {
+                parent.right = new_branch;
+            }
         } else {
-            parent_node.right = try bvh.createEmptyChild(parent_node);
-            parent_node.right.?.left = try bvh.createLeaf(platform, parent_node.right);
-            parent_node.right.?.right = node;
-            parent_node.right.?.aabb = getMergedAABB(node.aabb, platform.aabb);
+            bvh.root = new_branch;
         }
     }
 
     fn insertIntoChildren(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
-        // const aabb_cost = getAABBCost(platform.aabb);
-        if (node.left == null) {
-            node.left = try bvh.createLeaf(node.left, platform, node);
-            return;
-        }
-        if (node.right.? == null) {
-            node.right = try bvh.createLeaf(node.right, platform, node);
-            return;
-        }
-        const left_Merged = getMergedAABB(node.left.?.aabb, platform.aabb);
-        const right_Merged = getMergedAABB(node.right.?.aabb, platform.aabb);
-        if (left_Merged.cost < right_Merged.cost) {
-            try bvh.insertRecursive(node.left.?, platform);
+        const left = node.left.?;
+        const right = node.right.?;
+        const merge_l = getMergedAABB(left.aabb, platform.aabb);
+        const merge_r = getMergedAABB(right.aabb, platform.aabb);
+        const diff_l = getAABBCost(merge_l) - getAABBCost(left.aabb);
+        const diff_r = getAABBCost(merge_r) - getAABBCost(right.aabb);
+        if (diff_l < diff_r) {
+            try bvh.insertRecursive(left, platform);
         } else {
-            try bvh.insertRecursive(node.right.?, platform);
+            try bvh.insertRecursive(right, platform);
         }
-        // no need to check if right is null because
-        // left is null and at least one child is not null
+    }
+
+    fn createNode(bvh: *BVH, platform: T.Platform, parent: ?*TreeNode) !*TreeNode {
+        const node = try bvh.allocator.create(TreeNode);
+        node.* = .{
+            .left = null,
+            .right = null,
+            .aabb = platform.aabb,
+            .data = platform,
+            .parent = parent,
+        };
+        return node;
+    }
+
+    fn createBranch(bvh: *BVH, parent: ?*TreeNode) !*TreeNode {
+        const node = try bvh.allocator.create(TreeNode);
+        node.* = .{
+            .left = null,
+            .right = null,
+            .aabb = undefined,
+            .data = null,
+            .parent = parent,
+        };
+        return node;
     }
 
     pub fn printBVH(bvh: *BVH) void {
@@ -112,30 +129,6 @@ pub const BVH = struct {
             try getAABBsRecursive(root, &aabbs);
         }
         return aabbs.toOwnedSlice();
-    }
-
-    fn createLeaf(bvh: *BVH, platform: T.Platform, parent: ?*TreeNode) !*TreeNode {
-        const node = try bvh.allocator.create(TreeNode);
-        node.* = .{
-            .right = null,
-            .left = null,
-            .aabb = platform.aabb,
-            .data = platform,
-            .parent = parent,
-        };
-        return node;
-    }
-
-    fn createEmptyChild(bvh: *BVH, parent: ?*TreeNode) !*TreeNode {
-        const node = try bvh.allocator.create(TreeNode);
-        node.* = .{
-            .right = null,
-            .left = null,
-            .aabb = parent.aabb,
-            .data = null,
-            .parent = parent,
-        };
-        return node;
     }
 };
 
@@ -179,12 +172,14 @@ pub fn getAABBCost(rect: T.Rect) f32 {
 
 fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) std.mem.Allocator.Error!void {
     if (node.isLeaf()) return;
-    try aabbs.append(.{
-        .x = node.aabb.pos[0],
-        .y = node.aabb.pos[1],
-        .w = node.aabb.size[0],
-        .h = node.aabb.size[1],
-    });
+    if (node.parent != null) {
+        try aabbs.append(.{
+            .x = node.aabb.pos[0],
+            .y = node.aabb.pos[1],
+            .w = node.aabb.size[0],
+            .h = node.aabb.size[1],
+        });
+    }
     if (node.right) |tr| {
         try getAABBsRecursive(tr, aabbs);
     }
