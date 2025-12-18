@@ -26,47 +26,74 @@ pub const BVH = struct {
         if (bvh.root) |root| {
             try bvh.insertRecursive(root, platform);
         } else {
-            bvh.root = try bvh.createLeaf(platform);
+            bvh.root = try bvh.createLeaf(platform, null);
         }
+    }
+
+    fn branchOut(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
+        node.left = try bvh.createLeaf(platform, node);
+        const old_platform = node.data.?;
+        node.right = try bvh.createLeaf(old_platform, node);
+        node.data = null;
+        node.aabb = getMergedAABB(node.left.?.aabb, node.right.?.aabb);
     }
 
     fn insertRecursive(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
-        node.aabb = getExtendedAABB(node.aabb, platform.aabb);
-        if (node.data) |_| {
-            const existing = node.data.?;
-            node.data = null;
-            // is_horizontal should be determined by checking if the new node collides the aabb of this node!
-            // no just simply dividing the bigger axis!
-            // we should pass down the axis of separation not is_horizontal
-            // axis of separation is the axis in which there is a separation between
-            // new platform and the aabb of the current processing one.
-            const is_horizontal = node.aabb.size[0] >= node.aabb.size[1];
-            try bvh.insertIntoChildren(node, existing, is_horizontal);
-            try bvh.insertIntoChildren(node, platform, is_horizontal);
+        if (node.isLeaf()) {
+            try bvh.branchOut(node, platform);
+            return;
+        }
+        const node_cost = getAABBCost(node.aabb);
+        const platform_cost = getAABBCost(platform.aabb);
+        const merged_aabb = getMergedAABB(node.aabb, platform.aabb);
+        const merge_cost = getAABBCost(merged_aabb);
+        if (merge_cost < node_cost + platform_cost) {
+            node.aabb = merged_aabb;
+            try bvh.insertIntoChildren(node, platform);
         } else {
-            const is_horizontal = node.aabb.size[0] >= node.aabb.size[1];
-            try bvh.insertIntoChildren(node, platform, is_horizontal);
+            bvh.insertSibling(node, platform);
         }
     }
 
-    fn insertIntoChildren(bvh: *BVH, node: *TreeNode, platform: T.Platform, is_horizontal: bool) std.mem.Allocator.Error!void {
-        const center = platform.aabb.center();
-        const node_center = node.aabb.center();
-        const separation_index: usize = if (is_horizontal) 0 else 1;
-        const goes_tr = center[separation_index] >= node_center[separation_index];
-        if (goes_tr) {
-            if (node.child_tr) |tr| {
-                try bvh.insertRecursive(tr, platform);
-            } else {
-                node.child_tr = try bvh.createLeaf(platform);
-            }
-        } else {
-            if (node.child_bl) |bl| {
-                try bvh.insertRecursive(bl, platform);
-            } else {
-                node.child_bl = try bvh.createLeaf(platform);
-            }
+    fn insertSibling(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
+        if (node.parent==null){
+            // this node will contain the platform and what ever
+            // that was inside of it as children
+            return;
         }
+        const parent_node = node.parent.?;
+        if (node == parent_node.left.?) {
+            parent_node.left = try bvh.createEmptyChild(parent_node);
+            parent_node.left.?.right = try bvh.createLeaf(platform, parent_node.left);
+            parent_node.left.?.left = node;
+            parent_node.left.?.aabb = getMergedAABB(node.aabb, platform.aabb);
+        } else {
+            parent_node.right = try bvh.createEmptyChild(parent_node);
+            parent_node.right.?.left = try bvh.createLeaf(platform, parent_node.right);
+            parent_node.right.?.right = node;
+            parent_node.right.?.aabb = getMergedAABB(node.aabb, platform.aabb);
+        }
+    }
+
+    fn insertIntoChildren(bvh: *BVH, node: *TreeNode, platform: T.Platform) std.mem.Allocator.Error!void {
+        // const aabb_cost = getAABBCost(platform.aabb);
+        if (node.left == null) {
+            node.left = try bvh.createLeaf(node.left, platform, node);
+            return;
+        }
+        if (node.right.? == null) {
+            node.right = try bvh.createLeaf(node.right, platform, node);
+            return;
+        }
+        const left_Merged = getMergedAABB(node.left.?.aabb, platform.aabb);
+        const right_Merged = getMergedAABB(node.right.?.aabb, platform.aabb);
+        if (left_Merged.cost < right_Merged.cost) {
+            try bvh.insertRecursive(node.left.?, platform);
+        } else {
+            try bvh.insertRecursive(node.right.?, platform);
+        }
+        // no need to check if right is null because
+        // left is null and at least one child is not null
     }
 
     pub fn printBVH(bvh: *BVH) void {
@@ -87,31 +114,45 @@ pub const BVH = struct {
         return aabbs.toOwnedSlice();
     }
 
-    fn createLeaf(bvh: *BVH, platform: T.Platform) !*TreeNode {
+    fn createLeaf(bvh: *BVH, platform: T.Platform, parent: ?*TreeNode) !*TreeNode {
         const node = try bvh.allocator.create(TreeNode);
         node.* = .{
-            .child_tr = null,
-            .child_bl = null,
+            .right = null,
+            .left = null,
             .aabb = platform.aabb,
             .data = platform,
+            .parent = parent,
+        };
+        return node;
+    }
+
+    fn createEmptyChild(bvh: *BVH, parent: ?*TreeNode) !*TreeNode {
+        const node = try bvh.allocator.create(TreeNode);
+        node.* = .{
+            .right = null,
+            .left = null,
+            .aabb = parent.aabb,
+            .data = null,
+            .parent = parent,
         };
         return node;
     }
 };
 
 pub const TreeNode = struct {
-    child_tr: ?*TreeNode,
-    child_bl: ?*TreeNode,
+    right: ?*TreeNode,
+    left: ?*TreeNode,
     aabb: T.Rect,
     data: ?T.Platform,
+    parent: ?*TreeNode,
 
     pub fn isLeaf(node: *const TreeNode) bool {
         return node.data != null;
     }
 
     pub fn deinit(node: *TreeNode, allocator: std.mem.Allocator) void {
-        if (node.child_tr) |tr| tr.deinit(allocator);
-        if (node.child_bl) |bl| bl.deinit(allocator);
+        if (node.right) |tr| tr.deinit(allocator);
+        if (node.left) |bl| bl.deinit(allocator);
         allocator.destroy(node);
     }
 };
@@ -124,12 +165,16 @@ pub fn isAABBCollision(rect1: T.Rect, rect2: T.Rect) bool {
     return !(max1[0] < min2[0] or max1[1] < min2[1] or max2[0] < min1[0] or max2[1] < min1[1]);
 }
 
-pub fn getExtendedAABB(rect1: T.Rect, rect2: T.Rect) T.Rect {
+pub fn getMergedAABB(rect1: T.Rect, rect2: T.Rect) T.Rect {
     const minx = @min(rect1.pos[0], rect2.pos[0]);
     const miny = @min(rect1.pos[1], rect2.pos[1]);
     const maxx = @max(rect1.pos[0] + rect1.size[0], rect2.pos[0] + rect2.size[0]);
     const maxy = @max(rect1.pos[1] + rect1.size[1], rect2.pos[1] + rect2.size[1]);
     return T.Rect{ .pos = .{ minx, miny }, .size = .{ maxx - minx, maxy - miny } };
+}
+
+pub fn getAABBCost(rect: T.Rect) f32 {
+    return rect.size[0] + rect.size[1];
 }
 
 fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) std.mem.Allocator.Error!void {
@@ -140,10 +185,10 @@ fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) st
         .w = node.aabb.size[0],
         .h = node.aabb.size[1],
     });
-    if (node.child_tr) |tr| {
+    if (node.right) |tr| {
         try getAABBsRecursive(tr, aabbs);
     }
-    if (node.child_bl) |bl| {
+    if (node.left) |bl| {
         try getAABBsRecursive(bl, aabbs);
     }
 }
@@ -169,13 +214,13 @@ fn printNode(node: *const TreeNode, prefix: []const u8, is_last: bool, depth: us
         const extension = if (is_last) "    " else "|   ";
         var new_prefix_buf: [1024]u8 = undefined;
         const new_prefix = std.fmt.bufPrint(&new_prefix_buf, "{s}{s}", .{ prefix, extension }) catch prefix;
-        const has_bl = node.child_bl != null;
-        const has_tr = node.child_tr != null;
+        const has_bl = node.left != null;
+        const has_tr = node.right != null;
         if (has_tr) {
-            printNode(node.child_tr.?, new_prefix, !has_bl, depth + 1, max_depth);
+            printNode(node.right.?, new_prefix, !has_bl, depth + 1, max_depth);
         }
         if (has_bl) {
-            printNode(node.child_bl.?, new_prefix, true, depth + 1, max_depth);
+            printNode(node.left.?, new_prefix, true, depth + 1, max_depth);
         }
     }
 }
