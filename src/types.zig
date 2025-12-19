@@ -48,7 +48,7 @@ pub const Platform = struct {
 };
 
 pub const MapArea = struct {
-    pub const MaxPlatformNumber = 8;
+    pub const MaxPlatformNumber = 9;
     bvh: *BVH = undefined,
     pub fn init(allocator: std.mem.Allocator) !*MapArea {
         const m = try allocator.create(MapArea);
@@ -63,34 +63,6 @@ pub const MapArea = struct {
     }
 
     fn setup(map: *MapArea, allocator: std.mem.Allocator) !void {
-        // map.bvh = try BVH.init(allocator);
-        var plats = std.ArrayList(Platform).init(allocator);
-        defer plats.deinit();
-        try plats.append(.{
-            .aabb = .{ .pos = .{ -0.8, 0.3 }, .size = .{ 0.3, 0.2 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ 0, 0.3 }, .size = .{ 0.4, 0.1 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ -0.5, -0.7 }, .size = .{ 0.2, 0.3 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ -0.3, -0.3 }, .size = .{ 0.1, 0.2 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ -0.5, 0.6 }, .size = .{ 0.1, 0.2 } },
-        });
-        try plats.append(.{
-            .aabb = .{ .pos = .{ 0.5, 0.8 }, .size = .{ 0.1, 0.1 } },
-        });
-        const plat_list = try plats.toOwnedSlice();
-        map.bvh = try BVH.init(allocator, plat_list);
+        map.bvh = try BVH.init(allocator);
     }
 };
