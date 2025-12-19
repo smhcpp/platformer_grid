@@ -41,9 +41,10 @@ map: *T.MapArea = undefined,
 pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_tick = app_mod.id.tick;
     core.on_exit = app_mod.id.deinit;
-    const window = try core.windows.new(.{ .title = "Fixed Platformer" });
+    const window_id = try core.windows.new(.{ .title = "Fixed Platformer" });
+    const window = core.windows.getValue(window_id);
     app.* = .{
-        .window = window,
+        .window = window_id,
         .map_pipeline = undefined,
         .player_pipeline = undefined,
         .bvh_pipeline = undefined,
@@ -53,7 +54,7 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         .player_buffer = undefined,
         .globals_buffer = undefined,
         .player = .{ .shape = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
-        .camera = .{ .shape = .{ .pos = .{ 0, 0 }, .size = .{ 0, 0 } }, .zoom = 1.0 },
+        .camera = .{ .aabb = .{ .pos = .{ 0, 0 }, .size = .{ @floatFromInt(window.width), @floatFromInt(window.height) } }, .zoom = 1.0 },
         .globals = .{ .aspect_ratio = 1.0 },
     };
     try app.setup();
@@ -177,14 +178,15 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     });
 }
 
-fn updateCamera(app: *App, width: u32, height: u32) void {
-    app.camera.shape.size = T.Vec2{ T.F32U(width), T.F32U(height) };
-    app.camera.shape.pos = @max(T.Vec2{0, 0}, app.player.shape.pos - app.camera.shape.size / T.Vec2{ 2.0, 2.0 });
-    if(app.camera.shape.pos[0] + app.camera.shape.size[0] > app.map.size[0]) {
-        app.camera.shape.pos[0] = app.map.size[0] - app.camera.shape.size[0];
+fn updateCamera(app: *App) void {
+    const min = T.Vec2{ -app.globals.aspect_ratio, -1 };
+    app.camera.aabb.size = T.Vec2{ -2, -2 } * min;
+    app.camera.aabb.pos = @max(min, app.player.shape.pos + min);
+    if (app.camera.aabb.pos[0] + app.camera.aabb.size[0] > app.map.size[0]) {
+        app.camera.aabb.pos[0] = app.map.size[0] - app.camera.aabb.size[0];
     }
-    if(app.camera.shape.pos[1] + app.camera.shape.size[1] > app.map.size[1]) {
-        app.camera.shape.pos[1] = app.map.size[1] - app.camera.shape.size[1];
+    if (app.camera.aabb.pos[1] + app.camera.aabb.size[1] > app.map.size[1]) {
+        app.camera.aabb.pos[1] = app.map.size[1] - app.camera.aabb.size[1];
     }
 }
 
@@ -192,12 +194,17 @@ fn updateSystems(app: *App, core: *mach.Core) void {
     app.player.shape.pos += app.player.velocity;
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
-    app.updateCamera(window.width, window.height);
+    app.updateCamera();
 }
 
 fn updateBuffers(app: *App, core: *mach.Core) !void {
     const window = core.windows.getValue(app.window);
-    window.queue.writeBuffer(app.plats_buffer, 0, app.map.bvh.platforms[0..app.map.bvh.platforms.len]);
+    const visible_platforms = try app.map.bvh.getPlatformsOverlappingAABB(app.camera.aabb);
+    print("Visible platforms: {any}\n", .{visible_platforms});
+    defer app.map.bvh.allocator.free(visible_platforms);
+    if (visible_platforms.len > 0) {
+        window.queue.writeBuffer(app.plats_buffer, 0, visible_platforms[0..visible_platforms.len]);
+    }
     const aabbs = try app.map.bvh.getAABBs();
     defer app.map.bvh.allocator.free(aabbs);
     window.queue.writeBuffer(app.bvh_buffer, 0, aabbs[0..aabbs.len]);

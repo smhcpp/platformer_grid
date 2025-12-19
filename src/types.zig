@@ -48,7 +48,7 @@ pub const Platform = struct {
 };
 
 pub const Camera = struct {
-    shape: Rect,
+    aabb: Rect,
     zoom:f32,
 };
 
