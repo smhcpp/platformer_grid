@@ -48,7 +48,6 @@ pub const Platform = struct {
 };
 
 pub const MapArea = struct {
-    pub const MaxPlatformNumber = 9;
     bvh: *BVH = undefined,
     pub fn init(allocator: std.mem.Allocator) !*MapArea {
         const m = try allocator.create(MapArea);

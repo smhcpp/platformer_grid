@@ -6,6 +6,17 @@ pub const BVH = struct {
     // pub const MaxNumberOfBranches = 1000;
     root: ?*TreeNode,
     allocator: std.mem.Allocator,
+    platforms: [9]T.Platform = [_]T.Platform{
+        .{ .aabb = .{ .pos = .{ -0.8, 0.3 }, .size = .{ 0.3, 0.2 } } },
+        .{ .aabb = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } } },
+        .{ .aabb = .{ .pos = .{ 0, 0.3 }, .size = .{ 0.4, 0.1 } } },
+        .{ .aabb = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } } },
+        .{ .aabb = .{ .pos = .{ -0.5, -0.7 }, .size = .{ 0.2, 0.3 } } },
+        .{ .aabb = .{ .pos = .{ -0.3, -0.3 }, .size = .{ 0.1, 0.2 } } },
+        .{ .aabb = .{ .pos = .{ -0.5, 0.6 }, .size = .{ 0.1, 0.2 } } },
+        .{ .aabb = .{ .pos = .{ 0.5, 0.8 }, .size = .{ 0.1, 0.1 } } },
+        .{ .aabb = .{ .pos = .{ -1.5, -1 }, .size = .{ 3.0, 0.1 } } },
+    },
 
     pub fn init(allocator: std.mem.Allocator) !*BVH {
         const bvh = try allocator.create(BVH);
@@ -13,21 +24,10 @@ pub const BVH = struct {
             .root = null,
             .allocator = allocator,
         };
-        const platforms = [_]T.Platform{
-            .{ .aabb = .{ .pos = .{ -0.8, 0.3 }, .size = .{ 0.3, 0.2 } } },
-            .{ .aabb = .{ .pos = .{ 0, -0.5 }, .size = .{ 0.3, 0.2 } } },
-            .{ .aabb = .{ .pos = .{ 0, 0.3 }, .size = .{ 0.4, 0.1 } } },
-            .{ .aabb = .{ .pos = .{ 0.5, -0.3 }, .size = .{ 0.1, 0.2 } } },
-            .{ .aabb = .{ .pos = .{ -0.5, -0.7 }, .size = .{ 0.2, 0.3 } } },
-            .{ .aabb = .{ .pos = .{ -0.3, -0.3 }, .size = .{ 0.1, 0.2 } } },
-            .{ .aabb = .{ .pos = .{ -0.5, 0.6 }, .size = .{ 0.1, 0.2 } } },
-            .{ .aabb = .{ .pos = .{ 0.5, 0.8 }, .size = .{ 0.1, 0.1 } } },
-            .{ .aabb = .{ .pos = .{ -1.5, -1 }, .size = .{ 3.0, 0.1 } } },
-        };
-        var indices = try allocator.alloc(usize, platforms.len);
-        defer allocator.free(indices);
-        for (0..platforms.len) |i| indices[i] = i;
-        bvh.root = try bvh.buildRecursive(&platforms, indices);
+        var indices = try bvh.allocator.alloc(usize, bvh.platforms.len);
+        defer bvh.allocator.free(indices);
+        for (0..bvh.platforms.len) |i| indices[i] = i;
+        bvh.root = try bvh.buildRecursive(indices);
         return bvh;
     }
 
@@ -39,9 +39,9 @@ pub const BVH = struct {
     }
 
     /// uses Surface Area Heuristic (SAH) Sweep
-    fn buildRecursive(bvh: *BVH, all_platforms: []const T.Platform, indices: []usize) std.mem.Allocator.Error!*TreeNode {
+    fn buildRecursive(bvh: *BVH, indices: []usize) std.mem.Allocator.Error!*TreeNode {
         if (indices.len == 1) {
-            return bvh.createNode(all_platforms[indices[0]], null);
+            return bvh.createNode(indices[0], null);
         }
         var best_axis: usize = 0;
         var best_split_idx: usize = indices.len / 2;
@@ -54,12 +54,12 @@ pub const BVH = struct {
             }
         };
         inline for (0..2) |axis| {
-            std.sort.block(usize, indices, SortContext{ .plats = all_platforms, .axis = axis }, SortContext.less);
+            std.sort.block(usize, indices, SortContext{ .plats = &bvh.platforms, .axis = axis }, SortContext.less);
             for (1..indices.len) |i| {
                 const left = indices[0..i];
                 const right = indices[i..];
-                const aabb_l = computeGroupAABB(all_platforms, left);
-                const aabb_r = computeGroupAABB(all_platforms, right);
+                const aabb_l = computeGroupAABB(&bvh.platforms, left);
+                const aabb_r = computeGroupAABB(&bvh.platforms, right);
                 const cost = getAABBCost(aabb_l) * @as(f32, @floatFromInt(left.len)) +
                     getAABBCost(aabb_r) * @as(f32, @floatFromInt(right.len));
                 if (cost < min_cost) {
@@ -69,27 +69,27 @@ pub const BVH = struct {
                 }
             }
         }
-        std.sort.block(usize, indices, SortContext{ .plats = all_platforms, .axis = best_axis }, SortContext.less);
+        std.sort.block(usize, indices, SortContext{ .plats = &bvh.platforms, .axis = best_axis }, SortContext.less);
         const left_indices = indices[0..best_split_idx];
         const right_indices = indices[best_split_idx..];
         const node = try bvh.allocator.create(TreeNode);
-        node.left = try bvh.buildRecursive(all_platforms, left_indices);
-        node.right = try bvh.buildRecursive(all_platforms, right_indices);
+        node.left = try bvh.buildRecursive(left_indices);
+        node.right = try bvh.buildRecursive(right_indices);
         node.left.?.parent = node;
         node.right.?.parent = node;
         node.aabb = getMergedAABB(node.left.?.aabb, node.right.?.aabb);
-        node.data = null;
+        node.pid = null;
         node.parent = null;
         return node;
     }
 
-    fn createNode(bvh: *BVH, platform: T.Platform, parent: ?*TreeNode) !*TreeNode {
+    fn createNode(bvh: *BVH, pid: usize, parent: ?*TreeNode) !*TreeNode {
         const node = try bvh.allocator.create(TreeNode);
         node.* = .{
             .left = null,
             .right = null,
-            .aabb = platform.aabb,
-            .data = platform,
+            .aabb = bvh.platforms[pid].aabb,
+            .pid = pid,
             .parent = parent,
         };
         return node;
@@ -104,22 +104,14 @@ pub const BVH = struct {
         }
     }
 
-    pub fn getPlatforms(bvh: *BVH) ![]const T.Platform {
-        var platforms = std.ArrayList(T.Platform).init(bvh.allocator);
-        defer platforms.deinit();
-        if (bvh.root) |root| {
-            try getPlatformsRecursive(root, &platforms);
-        }
-        return platforms.toOwnedSlice();
-    }
-
-    pub fn getAABBs(bvh: *BVH) ![]const T.RectGPU {
+    pub fn getAABBs(bvh: *BVH) ![]T.RectGPU {
         var aabbs = std.ArrayList(T.RectGPU).init(bvh.allocator);
         defer aabbs.deinit();
         if (bvh.root) |root| {
             try getAABBsRecursive(root, &aabbs);
         }
-        return aabbs.toOwnedSlice();
+        const aabbs_ = try aabbs.toOwnedSlice();
+        return aabbs_;
     }
 };
 
@@ -127,11 +119,11 @@ pub const TreeNode = struct {
     right: ?*TreeNode,
     left: ?*TreeNode,
     aabb: T.Rect,
-    data: ?T.Platform,
+    pid: ?usize,
     parent: ?*TreeNode,
 
     pub fn isLeaf(node: *const TreeNode) bool {
-        return node.data != null;
+        return node.pid != null;
     }
 
     pub fn deinit(node: *TreeNode, allocator: std.mem.Allocator) void {
@@ -161,18 +153,6 @@ pub fn getAABBCost(rect: T.Rect) f32 {
     return rect.size[0] + rect.size[1];
 }
 
-fn getPlatformsRecursive(node: *const TreeNode, platforms: *std.ArrayList(T.Platform)) std.mem.Allocator.Error!void {
-    if (node.data) |plat| {
-        try platforms.append(plat);
-    }
-    if (node.right) |tr| {
-        try getPlatformsRecursive(tr, platforms);
-    }
-    if (node.left) |bl| {
-        try getPlatformsRecursive(bl, platforms);
-    }
-}
-
 fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) std.mem.Allocator.Error!void {
     if (node.isLeaf()) return;
     if (node.parent != null) {
@@ -183,25 +163,25 @@ fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) st
             .h = node.aabb.size[1],
         });
     }
-    if (node.right) |tr| {
-        try getAABBsRecursive(tr, aabbs);
+    if (node.right) |r| {
+        try getAABBsRecursive(r, aabbs);
     }
-    if (node.left) |bl| {
-        try getAABBsRecursive(bl, aabbs);
+    if (node.left) |l| {
+        try getAABBsRecursive(l, aabbs);
     }
 }
 
-fn printNode(node: *const TreeNode, prefix: []const u8, is_last: bool, depth: usize, max_depth: usize) void {
+fn printNode(bvh: *BVH, node: *const TreeNode, prefix: []const u8, is_last: bool, depth: usize, max_depth: usize) void {
     if (depth >= max_depth) {
         std.debug.print("{s}{s}...(max depth reached)\n", .{ prefix, if (is_last) "--- " else "|---" });
         return;
     }
     const connector = if (is_last) "--- " else "|---";
-    if (node.data) |plat| {
+    if (node.pid) |pid| {
         std.debug.print("{s}{s}LEAF: pos=({d:.2},{d:.2}) size=({d:.2},{d:.2})\n", .{
-            prefix,            connector,
-            plat.aabb.pos[0],  plat.aabb.pos[1],
-            plat.aabb.size[0], plat.aabb.size[1],
+            prefix,                          connector,
+            bvh.platforms[pid].aabb.pos[0],  bvh.platforms[pid].aabb.pos[1],
+            bvh.platforms[pid].aabb.size[0], bvh.platforms[pid].aabb.size[1],
         });
     } else {
         std.debug.print("{s}{s}BRANCH: aabb pos=({d:.2},{d:.2}) size=({d:.2},{d:.2})\n", .{

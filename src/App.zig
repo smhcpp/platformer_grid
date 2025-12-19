@@ -74,7 +74,7 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
         .size = UniformSize,
         .mapped_at_creation = .false,
     });
-    const plat_size = @max(16, @sizeOf(T.RectGPU) * T.MapArea.MaxPlatformNumber);
+    const plat_size = @max(16, @sizeOf(T.RectGPU) * app.map.bvh.platforms.len);
     app.plats_buffer = window.device.createBuffer(&.{
         .label = "platforms vertex",
         .usage = .{ .vertex = true, .copy_dst = true },
@@ -84,7 +84,7 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
     app.bvh_buffer = window.device.createBuffer(&.{
         .label = "bvh vertex",
         .usage = .{ .vertex = true, .copy_dst = true },
-        .size = (T.MapArea.MaxPlatformNumber - 1) * @sizeOf(T.RectGPU),
+        .size = (app.map.bvh.platforms.len - 1) * @sizeOf(T.RectGPU),
         .mapped_at_creation = .false,
     });
     const layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
@@ -183,11 +183,9 @@ pub fn updateSystems(app: *App, core: *mach.Core) void {
 
 pub fn updateBuffers(app: *App, core: *mach.Core) !void {
     const window = core.windows.getValue(app.window);
-    const platforms = try app.map.bvh.getPlatforms();
+    window.queue.writeBuffer(app.plats_buffer, 0, app.map.bvh.platforms[0..app.map.bvh.platforms.len]);
     const aabbs = try app.map.bvh.getAABBs();
     defer app.map.bvh.allocator.free(aabbs);
-    // print("aabbs: {any}\n", .{aabbs});
-    window.queue.writeBuffer(app.plats_buffer, 0, platforms[0..platforms.len]);
     window.queue.writeBuffer(app.bvh_buffer, 0, aabbs[0..aabbs.len]);
     window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
     window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{.{
@@ -250,13 +248,13 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
     render_pass.setPipeline(app.map_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * T.MapArea.MaxPlatformNumber);
-    render_pass.draw(6, @intCast(T.MapArea.MaxPlatformNumber), 0, 0);
+    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.map.bvh.platforms.len);
+    render_pass.draw(6, @intCast(app.map.bvh.platforms.len), 0, 0);
 
     render_pass.setPipeline(app.bvh_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.bvh_buffer, 0, (T.MapArea.MaxPlatformNumber - 1) * @sizeOf(T.RectGPU));
-    render_pass.draw(8, T.MapArea.MaxPlatformNumber - 1, 0, 0);
+    render_pass.setVertexBuffer(0, app.bvh_buffer, 0, (app.map.bvh.platforms.len - 1) * @sizeOf(T.RectGPU));
+    render_pass.draw(8, @intCast(app.map.bvh.platforms.len - 1), 0, 0);
 
     render_pass.setPipeline(app.player_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
