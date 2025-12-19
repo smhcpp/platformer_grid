@@ -37,7 +37,7 @@ pub const RectGPU = extern struct {
 };
 
 pub const Player = struct {
-    shape: Rect,
+    aabb: Rect,
     velocity: Vec2,
     vision_radius: f32 = 0.4,
 };
@@ -51,6 +51,33 @@ pub const Camera = struct {
     aabb: Rect,
     zoom:f32,
 };
+
+pub fn getScreenRectGPU(aabb: Rect, camera_aabb: Rect, camera_zoom: f32) RectGPU {
+    const rel_x = (aabb.pos[0] - camera_aabb.pos[0]) * camera_zoom;
+    const rel_y = (aabb.pos[1] - camera_aabb.pos[1]) * camera_zoom;
+    const rel_w = aabb.size[0] * camera_zoom;
+    const rel_h = aabb.size[1] * camera_zoom;
+    const viewport_size = 2.0 / camera_zoom;
+    const clip_x = (rel_x / viewport_size) * 2.0 - 1.0;
+    const clip_y = (rel_y / viewport_size) * 2.0 - 1.0;
+    const clip_w = (rel_w / viewport_size) * 2.0;
+    const clip_h = (rel_h / viewport_size) * 2.0;
+    return RectGPU{
+        .x = clip_x,
+        .y = clip_y,
+        .w = clip_w,
+        .h = clip_h,
+    };
+}
+
+pub fn getScreennRectGPU(aabb:Rect,camera_aabb:Rect,camera_zoom:f32) RectGPU {
+    return RectGPU{
+        .x = (aabb.pos[0] - camera_aabb.pos[0]) * camera_zoom,
+        .y = (aabb.pos[1] - camera_aabb.pos[1]) * camera_zoom,
+        .w = aabb.size[0] * camera_zoom,
+        .h = aabb.size[1] * camera_zoom,
+    };
+}
 
 pub const MapArea = struct {
     size: Vec2,

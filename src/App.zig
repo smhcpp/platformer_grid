@@ -37,12 +37,13 @@ camera: T.Camera,
 player: T.Player,
 globals: T.Globals,
 map: *T.MapArea = undefined,
+visible_platforms_count: usize = 0,
 
 pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_tick = app_mod.id.tick;
     core.on_exit = app_mod.id.deinit;
     const window_id = try core.windows.new(.{ .title = "Fixed Platformer" });
-    const window = core.windows.getValue(window_id);
+    // const window = core.windows.getValue(window_id);
     app.* = .{
         .window = window_id,
         .map_pipeline = undefined,
@@ -53,9 +54,10 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         .plats_buffer = undefined,
         .player_buffer = undefined,
         .globals_buffer = undefined,
-        .player = .{ .shape = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
-        .camera = .{ .aabb = .{ .pos = .{ 0, 0 }, .size = .{ @floatFromInt(window.width), @floatFromInt(window.height) } }, .zoom = 1.0 },
+        .player = .{ .aabb = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
+        .camera = .{ .aabb = .{ .pos = .{ 0, 0 }, .size = .{ 2.0, 2.0 } }, .zoom = 1.0 },
         .globals = .{ .aspect_ratio = 1.0 },
+        .visible_platforms_count = 0,
     };
     try app.setup();
 }
@@ -177,11 +179,24 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         },
     });
 }
-
 fn updateCamera(app: *App) void {
+    const cam_h = 2.0 / app.camera.zoom;
+    const cam_w = cam_h;
+    app.camera.aabb.size = T.Vec2{ cam_w, cam_h };
+    const player_center = app.player.aabb.pos + app.player.aabb.size / T.Vec2{ 2.0, 2.0 };
+    app.camera.aabb.pos = player_center - app.camera.aabb.size / T.Vec2{ 2.0, 2.0 };
+    const map_min = T.Vec2{ -2.0, -2.0 };
+    const map_max = app.map.size;
+    if (app.camera.aabb.pos[0] < map_min[0]) app.camera.aabb.pos[0] = map_min[0];
+    if (app.camera.aabb.pos[1] < map_min[1]) app.camera.aabb.pos[1] = map_min[1];
+    if (app.camera.aabb.pos[0] + cam_w > map_max[0]) app.camera.aabb.pos[0] = map_max[0] - cam_w;
+    if (app.camera.aabb.pos[1] + cam_h > map_max[1]) app.camera.aabb.pos[1] = map_max[1] - cam_h;
+}
+
+fn updateCameera(app: *App) void {
     const min = T.Vec2{ -app.globals.aspect_ratio, -1 };
     app.camera.aabb.size = T.Vec2{ -2, -2 } * min;
-    app.camera.aabb.pos = @max(min, app.player.shape.pos + min);
+    app.camera.aabb.pos = @max(min, app.player.aabb.pos + min);
     if (app.camera.aabb.pos[0] + app.camera.aabb.size[0] > app.map.size[0]) {
         app.camera.aabb.pos[0] = app.map.size[0] - app.camera.aabb.size[0];
     }
@@ -191,7 +206,7 @@ fn updateCamera(app: *App) void {
 }
 
 fn updateSystems(app: *App, core: *mach.Core) void {
-    app.player.shape.pos += app.player.velocity;
+    app.player.aabb.pos += app.player.velocity;
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
     app.updateCamera();
@@ -199,22 +214,32 @@ fn updateSystems(app: *App, core: *mach.Core) void {
 
 fn updateBuffers(app: *App, core: *mach.Core) !void {
     const window = core.windows.getValue(app.window);
-    const visible_platforms = try app.map.bvh.getPlatformsOverlappingAABB(app.camera.aabb);
-    print("Visible platforms: {any}\n", .{visible_platforms});
-    defer app.map.bvh.allocator.free(visible_platforms);
-    if (visible_platforms.len > 0) {
-        window.queue.writeBuffer(app.plats_buffer, 0, visible_platforms[0..visible_platforms.len]);
+
+    const pids = try app.map.bvh.getPidsOverlappingAABB(app.camera.aabb);
+    defer app.map.bvh.allocator.free(pids);
+    var visible_gpu_data = try app.map.bvh.allocator.alloc(T.RectGPU, pids.len);
+    defer app.map.bvh.allocator.free(visible_gpu_data);
+    for (pids, 0..) |pid, i| {
+        visible_gpu_data[i] = T.getScreenRectGPU(
+            app.map.bvh.platforms[pid].aabb,
+            app.camera.aabb,
+            app.camera.zoom,
+        );
     }
+    app.visible_platforms_count = pids.len;
+    if (visible_gpu_data.len > 0) {
+        window.queue.writeBuffer(app.plats_buffer, 0, visible_gpu_data);
+    }
+
     const aabbs = try app.map.bvh.getAABBs();
     defer app.map.bvh.allocator.free(aabbs);
     window.queue.writeBuffer(app.bvh_buffer, 0, aabbs[0..aabbs.len]);
     window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{.{
-        .x = app.player.shape.pos[0],
-        .y = app.player.shape.pos[1],
-        .w = app.player.shape.size[0],
-        .h = app.player.shape.size[1],
-    }});
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{T.getScreenRectGPU(
+        app.player.aabb,
+        app.camera.aabb,
+        app.camera.zoom,
+    )});
 }
 
 fn handleEvents(app: *App, core: *mach.Core) void {
@@ -269,8 +294,8 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
     render_pass.setPipeline(app.map_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.map.bvh.platforms.len);
-    render_pass.draw(6, @intCast(app.map.bvh.platforms.len), 0, 0);
+    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.visible_platforms_count);
+    render_pass.draw(6, @intCast(app.visible_platforms_count), 0, 0);
 
     render_pass.setPipeline(app.bvh_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});

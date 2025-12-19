@@ -104,11 +104,11 @@ pub const BVH = struct {
     //     }
     //     return overlapping_pids.toOwnedSlice();
     // }
-    pub fn getPlatformsOverlappingAABB(bvh: *BVH, aabb: T.Rect) ![]T.Rect {
-        var overlapping_aabbs = std.ArrayList(T.Rect).init(bvh.allocator);
+    pub fn getPidsOverlappingAABB(bvh: *BVH, aabb: T.Rect) ![]usize {
+        var overlapping_aabbs = std.ArrayList(usize).init(bvh.allocator);
         defer overlapping_aabbs.deinit();
         if (bvh.root) |root| {
-            try getPlatformsOverlappingAABBRecursive(root, aabb, &bvh.platforms, &overlapping_aabbs);
+            try getPidsOverlappingAABBRecursive(root, aabb, &bvh.platforms, &overlapping_aabbs);
         }
         return overlapping_aabbs.toOwnedSlice();
     }
@@ -151,32 +151,28 @@ pub const TreeNode = struct {
     }
 };
 
-pub fn getPlatformsOverlappingAABBRecursive(
+pub fn getPidsOverlappingAABBRecursive(
     node: *const TreeNode,
     aabb: T.Rect,
     platforms: []const T.Platform,
-    overlapping_aabbs: *std.ArrayList(T.Rect),
+    overlapping_aabbs: *std.ArrayList(usize),
 ) std.mem.Allocator.Error!void {
-    const overlap = getAABBOverlap(aabb, node.aabb);
-    print("Considering node for aabb {any}\n", .{aabb});
-    if (overlap) |overlap_aabb| {
-        print("Overlap found: {any}\n", .{overlap_aabb});
-        if (node.isLeaf()) {
-            print("Overlap added: {any}\n", .{overlap_aabb});
-            try overlapping_aabbs.append(overlap_aabb);
-            return;
-        }
-        if (node.right) |r| try getPlatformsOverlappingAABBRecursive(r, aabb, platforms, overlapping_aabbs);
-        if (node.left) |l| try getPlatformsOverlappingAABBRecursive(l, aabb, platforms, overlapping_aabbs);
+    if (!isAABBCollision(aabb, node.aabb)) return;
+    if (node.pid) |pid| {
+        try overlapping_aabbs.append(pid);
+        return;
     }
+    if (node.right) |r| try getPidsOverlappingAABBRecursive(r, aabb, platforms, overlapping_aabbs);
+    if (node.left) |l| try getPidsOverlappingAABBRecursive(l, aabb, platforms, overlapping_aabbs);
 }
 
 pub fn getAABBOverlap(rect1: T.Rect, rect2: T.Rect) ?T.Rect {
+    const overlapping_threshold = 0.00001;
     const colposx = @max(rect1.pos[0], rect2.pos[0]);
     const colposy = @max(rect1.pos[1], rect2.pos[1]);
     const colsizex = @min(rect1.pos[0] + rect1.size[0], rect2.pos[0] + rect2.size[0]) - colposx;
     const colsizey = @min(rect1.pos[1] + rect1.size[1], rect2.pos[1] + rect2.size[1]) - colposy;
-    if(colsizex <= 1 or colsizey <= 1) return null;
+    if (colsizex <= overlapping_threshold or colsizey <= overlapping_threshold) return null;
     return T.Rect{ .pos = .{ colposx, colposy }, .size = .{ colsizex, colsizey } };
 }
 
