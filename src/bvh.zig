@@ -95,6 +95,23 @@ pub const BVH = struct {
         return node;
     }
 
+    // pub fn getPidsOverlappingRay(bvh: *BVH, ray: T.Ray) ![]usize {
+    //     var overlapping_pids = std.ArrayList(usize).init();
+    //     defer overlapping_pids.deinit();
+    //     if (bvh.root) |root| {
+    //         try getPidsOverlappingAABBRecursive(root, ray, &bvh.platforms, &overlapping_pids);
+    //     }
+    //     return overlapping_pids.toOwnedSlice();
+    // }
+    pub fn getPidsOverlappingAABB(bvh: *BVH, aabb: T.Rect) ![]usize {
+        var overlapping_pids = std.ArrayList(usize).init();
+        defer overlapping_pids.deinit();
+        if (bvh.root) |root| {
+            try getPidsOverlappingAABBRecursive(root, aabb, &bvh.platforms, &overlapping_pids);
+        }
+        return overlapping_pids.toOwnedSlice();
+    }
+
     pub fn printBVH(bvh: *BVH) void {
         std.debug.print("BVH Tree Structure:\n", .{});
         if (bvh.root) |root| {
@@ -132,6 +149,22 @@ pub const TreeNode = struct {
         allocator.destroy(node);
     }
 };
+
+pub fn getPidsOverlappingAABBRecursive(
+    node: *const TreeNode,
+    aabb: T.Rect,
+    platforms: []const T.Platform,
+    overlapping_pids: *std.ArrayList(usize),
+) std.mem.Allocator.Error!void {
+    const is_collision = isAABBCollision(aabb, node.aabb);
+    if (!is_collision) return;
+    if (node.pid) |pid| {
+        try overlapping_pids.append(pid);
+        return;
+    }
+    if (node.right) |r| try getPidsOverlappingAABBRecursive(r, aabb, platforms, overlapping_pids);
+    if (node.left) |l| try getPidsOverlappingAABBRecursive(l, aabb, platforms, overlapping_pids);
+}
 
 pub fn isAABBCollision(rect1: T.Rect, rect2: T.Rect) bool {
     const min1 = rect1.pos;

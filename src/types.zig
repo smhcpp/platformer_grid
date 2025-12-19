@@ -47,11 +47,19 @@ pub const Platform = struct {
     aabb: Rect,
 };
 
+pub const Camera = struct {
+    shape: Rect,
+    zoom:f32,
+};
+
 pub const MapArea = struct {
+    size: Vec2,
     bvh: *BVH = undefined,
     pub fn init(allocator: std.mem.Allocator) !*MapArea {
         const m = try allocator.create(MapArea);
-        m.* = .{};
+        m.* = .{
+            .size = Vec2{ 2000, 1000 },
+        };
         try m.setup(allocator);
         return m;
     }

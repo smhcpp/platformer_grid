@@ -33,6 +33,7 @@ bvh_buffer: *gpu.Buffer,
 player_buffer: *gpu.Buffer,
 globals_buffer: *gpu.Buffer,
 
+camera: T.Camera,
 player: T.Player,
 globals: T.Globals,
 map: *T.MapArea = undefined,
@@ -52,6 +53,7 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
         .player_buffer = undefined,
         .globals_buffer = undefined,
         .player = .{ .shape = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
+        .camera = .{ .shape = .{ .pos = .{ 0, 0 }, .size = .{ 0, 0 } }, .zoom = 1.0 },
         .globals = .{ .aspect_ratio = 1.0 },
     };
     try app.setup();
@@ -175,13 +177,25 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     });
 }
 
-pub fn updateSystems(app: *App, core: *mach.Core) void {
+fn updateCamera(app: *App, width: u32, height: u32) void {
+    app.camera.shape.size = T.Vec2{ T.F32U(width), T.F32U(height) };
+    app.camera.shape.pos = @max(T.Vec2{0, 0}, app.player.shape.pos - app.camera.shape.size / T.Vec2{ 2.0, 2.0 });
+    if(app.camera.shape.pos[0] + app.camera.shape.size[0] > app.map.size[0]) {
+        app.camera.shape.pos[0] = app.map.size[0] - app.camera.shape.size[0];
+    }
+    if(app.camera.shape.pos[1] + app.camera.shape.size[1] > app.map.size[1]) {
+        app.camera.shape.pos[1] = app.map.size[1] - app.camera.shape.size[1];
+    }
+}
+
+fn updateSystems(app: *App, core: *mach.Core) void {
     app.player.shape.pos += app.player.velocity;
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
+    app.updateCamera(window.width, window.height);
 }
 
-pub fn updateBuffers(app: *App, core: *mach.Core) !void {
+fn updateBuffers(app: *App, core: *mach.Core) !void {
     const window = core.windows.getValue(app.window);
     window.queue.writeBuffer(app.plats_buffer, 0, app.map.bvh.platforms[0..app.map.bvh.platforms.len]);
     const aabbs = try app.map.bvh.getAABBs();
@@ -196,7 +210,7 @@ pub fn updateBuffers(app: *App, core: *mach.Core) !void {
     }});
 }
 
-pub fn handleEvents(app: *App, core: *mach.Core) void {
+fn handleEvents(app: *App, core: *mach.Core) void {
     const speed = 0.02;
     while (core.nextEvent()) |event| {
         switch (event) {
