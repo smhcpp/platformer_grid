@@ -179,18 +179,18 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
         },
     });
 }
+
 fn updateCamera(app: *App) void {
-    const cam_h = 2.0 / app.camera.zoom;
-    const cam_w = cam_h;
-    app.camera.aabb.size = T.Vec2{ cam_w, cam_h };
+    const cam_size = T.Vec2{ 2 * app.globals.aspect_ratio, 2 };
+    app.camera.aabb.size = cam_size;
     const player_center = app.player.aabb.pos + app.player.aabb.size / T.Vec2{ 2.0, 2.0 };
     app.camera.aabb.pos = player_center - app.camera.aabb.size / T.Vec2{ 2.0, 2.0 };
-    const map_min = T.Vec2{ -2.0, -2.0 };
-    const map_max = app.map.size;
+    const map_min = app.map.size / T.Vec2{ -2.0, -2.0 };
+    const map_max = map_min + app.map.size;
     if (app.camera.aabb.pos[0] < map_min[0]) app.camera.aabb.pos[0] = map_min[0];
     if (app.camera.aabb.pos[1] < map_min[1]) app.camera.aabb.pos[1] = map_min[1];
-    if (app.camera.aabb.pos[0] + cam_w > map_max[0]) app.camera.aabb.pos[0] = map_max[0] - cam_w;
-    if (app.camera.aabb.pos[1] + cam_h > map_max[1]) app.camera.aabb.pos[1] = map_max[1] - cam_h;
+    if (app.camera.aabb.pos[0] + app.camera.aabb.size[0] > map_max[0]) app.camera.aabb.pos[0] = map_max[0] - app.camera.aabb.size[0];
+    if (app.camera.aabb.pos[1] + app.camera.aabb.size[1] > map_max[1]) app.camera.aabb.pos[1] = map_max[1] - app.camera.aabb.size[1];
 }
 
 fn updateCameera(app: *App) void {
@@ -207,6 +207,7 @@ fn updateCameera(app: *App) void {
 
 fn updateSystems(app: *App, core: *mach.Core) void {
     app.player.aabb.pos += app.player.velocity;
+    print("Player position: {}\n", .{app.player.aabb.pos});
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
     app.updateCamera();
@@ -224,6 +225,7 @@ fn updateBuffers(app: *App, core: *mach.Core) !void {
             app.map.bvh.platforms[pid].aabb,
             app.camera.aabb,
             app.camera.zoom,
+            app.globals.aspect_ratio,
         );
     }
     app.visible_platforms_count = pids.len;
@@ -239,6 +241,7 @@ fn updateBuffers(app: *App, core: *mach.Core) !void {
         app.player.aabb,
         app.camera.aabb,
         app.camera.zoom,
+        app.globals.aspect_ratio,
     )});
 }
 
