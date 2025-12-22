@@ -5,7 +5,7 @@ const Vec2 = T.Vec2;
 
 pub const BVH = struct {
     // pub const MaxNumberOfBranches = 1000;
-    root: ?*TreeNode,
+    root: ?*T.TreeNode,
     allocator: std.mem.Allocator,
     platforms: [9]T.Platform = [_]T.Platform{
         .{ .aabb = .{ .pos = .{ -0.8, 0.3 }, .size = .{ 0.3, 0.2 } } },
@@ -40,7 +40,7 @@ pub const BVH = struct {
     }
 
     /// uses Surface Area Heuristic (SAH) Sweep
-    fn buildRecursive(bvh: *BVH, indices: []usize) std.mem.Allocator.Error!*TreeNode {
+    fn buildRecursive(bvh: *BVH, indices: []usize) std.mem.Allocator.Error!*T.TreeNode {
         if (indices.len == 1) {
             return bvh.createNode(indices[0], null);
         }
@@ -73,7 +73,7 @@ pub const BVH = struct {
         std.sort.block(usize, indices, SortContext{ .plats = &bvh.platforms, .axis = best_axis }, SortContext.less);
         const left_indices = indices[0..best_split_idx];
         const right_indices = indices[best_split_idx..];
-        const node = try bvh.allocator.create(TreeNode);
+        const node = try bvh.allocator.create(T.TreeNode);
         node.left = try bvh.buildRecursive(left_indices);
         node.right = try bvh.buildRecursive(right_indices);
         node.left.?.parent = node;
@@ -84,8 +84,8 @@ pub const BVH = struct {
         return node;
     }
 
-    fn createNode(bvh: *BVH, pid: usize, parent: ?*TreeNode) !*TreeNode {
-        const node = try bvh.allocator.create(TreeNode);
+    fn createNode(bvh: *BVH, pid: usize, parent: ?*T.TreeNode) !*T.TreeNode {
+        const node = try bvh.allocator.create(T.TreeNode);
         node.* = .{
             .left = null,
             .right = null,
@@ -113,6 +113,14 @@ pub const BVH = struct {
         return overlapping_aabbs.toOwnedSlice();
     }
 
+    pub fn castRay(bvh: *BVH, ray: *T.Ray) ?T.HitPoint {
+        var hit: ?T.HitPoint = null;
+        if (bvh.root) |root| {
+            castRayRecursive(root, ray, &hit);
+        }
+        return hit;
+    }
+
     pub fn printBVH(bvh: *BVH) void {
         std.debug.print("BVH Tree Structure:\n", .{});
         if (bvh.root) |root| {
@@ -122,8 +130,8 @@ pub const BVH = struct {
         }
     }
 
-    pub fn getAABBs(bvh: *BVH) ![]T.RectGPU {
-        var aabbs = std.ArrayList(T.RectGPU).init(bvh.allocator);
+    pub fn getAABBs(bvh: *BVH) ![]T.Vec4GPU {
+        var aabbs = std.ArrayList(T.Vec4GPU).init(bvh.allocator);
         defer aabbs.deinit();
         if (bvh.root) |root| {
             try getAABBsRecursive(root, &aabbs);
@@ -133,26 +141,8 @@ pub const BVH = struct {
     }
 };
 
-pub const TreeNode = struct {
-    right: ?*TreeNode,
-    left: ?*TreeNode,
-    aabb: T.Rect,
-    pid: ?usize,
-    parent: ?*TreeNode,
-
-    pub fn isLeaf(node: *const TreeNode) bool {
-        return node.pid != null;
-    }
-
-    pub fn deinit(node: *TreeNode, allocator: std.mem.Allocator) void {
-        if (node.right) |tr| tr.deinit(allocator);
-        if (node.left) |bl| bl.deinit(allocator);
-        allocator.destroy(node);
-    }
-};
-
 pub fn getPidsOverlappingAABBRecursive(
-    node: *const TreeNode,
+    node: *const T.TreeNode,
     aabb: T.Rect,
     platforms: []const T.Platform,
     overlapping_aabbs: *std.ArrayList(usize),
@@ -164,6 +154,50 @@ pub fn getPidsOverlappingAABBRecursive(
     }
     if (node.right) |r| try getPidsOverlappingAABBRecursive(r, aabb, platforms, overlapping_aabbs);
     if (node.left) |l| try getPidsOverlappingAABBRecursive(l, aabb, platforms, overlapping_aabbs);
+}
+
+pub fn castRayRecursive(node: *T.TreeNode, ray: *T.Ray, hit: ?*T.HitPoint) void {
+    const collision = rayAABBIntersection(ray, node.aabb);
+    if (collision.? == null) return;
+    if (hit) |hit_point| {
+        if (collision.? >= hit_point.dist2) return;
+        hit_point.pid = node.pid;
+        // wall bitmask: how to get it?
+        // hit_point.wall_bitmask = getWallBitmask(node, collision.?);
+        hit_point.dir = ray.dir;
+        hit_point.dist = collision.?;
+        return;
+    }
+    if (node.isLeaf()) {
+        hit.?.* = T.HitPoint{
+            .pid = node.pid,
+            // .wall_bitmask = getWallBitmask(node, collision.?),
+            .dir = ray.dir,
+            .dist = collision.?,
+        };
+        return;
+    }
+    if (node.left) {
+        castRayRecursive(node.left, ray, hit);
+    }
+    if (node.right) {
+        castRayRecursive(node.right, ray, hit);
+    }
+}
+
+pub fn rayAABBIntersection(ray: *T.Ray, aabb: T.Rect) ?f32 {
+    const inv_dir = T.Vec2{
+        if (ray.dir[0] != 0) 1.0 / ray.dir[0] else std.math.inf(f32),
+        if (ray.dir[1] != 0) 1.0 / ray.dir[1] else std.math.inf(f32),
+    };
+    const t1 = (aabb.pos - ray.ori) * inv_dir;
+    const t2 = (aabb.pos + aabb.size - ray.ori) * inv_dir;
+    const tmin = @max(@min(t1[0], t2[0]), @min(t1[1], t2[1]));
+    const tmax = @min(@max(t1[0], t2[0]), @max(t1[1], t2[1]));
+    if (tmax < 0 or tmin > tmax) return null;
+    const t = if (tmin < 0) tmax else tmin;
+    if (t > ray.dist) return null;
+    return t;
 }
 
 pub fn getAABBOverlap(rect1: T.Rect, rect2: T.Rect) ?T.Rect {
@@ -196,7 +230,7 @@ pub fn getAABBCost(rect: T.Rect) f32 {
     return rect.size[0] + rect.size[1];
 }
 
-fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) std.mem.Allocator.Error!void {
+fn getAABBsRecursive(node: *const T.TreeNode, aabbs: *std.ArrayList(T.Vec4GPU)) std.mem.Allocator.Error!void {
     if (node.isLeaf()) return;
     if (node.parent != null) {
         try aabbs.append(.{
@@ -214,7 +248,7 @@ fn getAABBsRecursive(node: *const TreeNode, aabbs: *std.ArrayList(T.RectGPU)) st
     }
 }
 
-fn printNode(bvh: *BVH, node: *const TreeNode, prefix: []const u8, is_last: bool, depth: usize, max_depth: usize) void {
+fn printNode(bvh: *BVH, node: *const T.TreeNode, prefix: []const u8, is_last: bool, depth: usize, max_depth: usize) void {
     if (depth >= max_depth) {
         std.debug.print("{s}{s}...(max depth reached)\n", .{ prefix, if (is_last) "--- " else "|---" });
         return;

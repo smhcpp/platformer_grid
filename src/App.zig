@@ -1,4 +1,5 @@
 const std = @import("std");
+const Vision = @import("vision.zig").Vision;
 const print = std.debug.print;
 const mach = @import("mach");
 const T = @import("types.zig");
@@ -23,21 +24,27 @@ pub const main = mach.schedule(.{
 });
 
 window: mach.ObjectID,
+
 map_pipeline: *gpu.RenderPipeline,
 player_pipeline: *gpu.RenderPipeline,
 bvh_pipeline: *gpu.RenderPipeline,
+vision_pipeline: *gpu.RenderPipeline,
+
 bind_group: *gpu.BindGroup,
 
 plats_buffer: *gpu.Buffer,
 bvh_buffer: *gpu.Buffer,
 player_buffer: *gpu.Buffer,
 globals_buffer: *gpu.Buffer,
+vision_buffer: *gpu.Buffer,
 
 camera: T.Camera,
 player: T.Player,
 globals: T.Globals,
 map: *T.MapArea = undefined,
 visible_platforms_count: usize = 0,
+frames: usize = 0,
+accumulated_time: i64 = 0,
 
 pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     core.on_tick = app_mod.id.tick;
@@ -46,15 +53,26 @@ pub fn init(core: *mach.Core, app: *App, app_mod: mach.Mod(App)) !void {
     // const window = core.windows.getValue(window_id);
     app.* = .{
         .window = window_id,
+
         .map_pipeline = undefined,
         .player_pipeline = undefined,
         .bvh_pipeline = undefined,
+        .vision_pipeline = undefined,
+
         .bind_group = undefined,
+
         .bvh_buffer = undefined,
         .plats_buffer = undefined,
         .player_buffer = undefined,
         .globals_buffer = undefined,
-        .player = .{ .aabb = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } }, .velocity = .{ 0, 0 } },
+        .vision_buffer = undefined,
+
+        .player = .{
+            .aabb = .{ .pos = .{ 0, 0 }, .size = .{ 0.1, 0.2 } },
+            .velocity = .{ 0, 0 },
+            .vision_radius = 0.4,
+            .vision = Vision.init(std.heap.c_allocator),
+        },
         .camera = .{ .aabb = .{ .pos = .{ 0, 0 }, .size = .{ 2.0, 2.0 } }, .zoom = 1.0 },
         .globals = .{ .aspect_ratio = 1.0 },
         .visible_platforms_count = 0,
@@ -79,25 +97,35 @@ fn setupBuffers(app: *App, window: anytype) *gpu.BindGroupLayout {
         .size = UniformSize,
         .mapped_at_creation = .false,
     });
-    const plat_size = @max(16, @sizeOf(T.RectGPU) * app.map.bvh.platforms.len);
+    const plat_size = @max(16, @sizeOf(T.Vec4GPU) * app.map.bvh.platforms.len);
     app.plats_buffer = window.device.createBuffer(&.{
         .label = "platforms vertex",
         .usage = .{ .vertex = true, .copy_dst = true },
         .size = plat_size,
         .mapped_at_creation = .false,
     });
+
+    app.vision_buffer = window.device.createBuffer(&.{
+        .label = "vision vertex",
+        .usage = .{ .vertex = true, .copy_dst = true },
+        .size = @sizeOf(T.Vec4GPU),
+        .mapped_at_creation = .false,
+    });
+
     app.bvh_buffer = window.device.createBuffer(&.{
         .label = "bvh vertex",
         .usage = .{ .vertex = true, .copy_dst = true },
-        .size = (app.map.bvh.platforms.len - 1) * @sizeOf(T.RectGPU),
+        .size = (app.map.bvh.platforms.len - 1) * @sizeOf(T.Vec4GPU),
         .mapped_at_creation = .false,
     });
+
     const layout = window.device.createBindGroupLayout(&gpu.BindGroupLayout.Descriptor.init(.{
         .entries = &.{
             .{ .binding = 0, .visibility = .{ .vertex = true }, .buffer = .{ .type = .uniform, .min_binding_size = @sizeOf(T.Globals) } },
-            .{ .binding = 1, .visibility = .{ .vertex = true }, .buffer = .{ .type = .uniform, .min_binding_size = @sizeOf(T.RectGPU) } },
+            .{ .binding = 1, .visibility = .{ .vertex = true }, .buffer = .{ .type = .uniform, .min_binding_size = @sizeOf(T.Vec4GPU) } },
         },
     }));
+
     app.bind_group = window.device.createBindGroup(&gpu.BindGroup.Descriptor.init(.{
         .layout = layout,
         .entries = &.{
@@ -123,6 +151,8 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     defer map_module.release();
     const bvh_module = window.device.createShaderModuleWGSL("bvh.wgsl", @embedFile("shaders/bvh.wgsl"));
     defer bvh_module.release();
+    const vision_module = window.device.createShaderModuleWGSL("vision.wgsl", @embedFile("shaders/vision.wgsl"));
+    defer vision_module.release();
     const blend = gpu.BlendState{};
     const color_target = gpu.ColorTargetState{
         .format = window.framebuffer_format,
@@ -131,7 +161,7 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
 
     const vertex_layouts = [_]gpu.VertexBufferLayout{
         .{
-            .array_stride = @sizeOf(T.RectGPU),
+            .array_stride = @sizeOf(T.Vec4GPU),
             .step_mode = .instance,
             .attribute_count = 1,
             .attributes = &[_]gpu.VertexAttribute{
@@ -143,12 +173,23 @@ fn setupPipeline(core: *mach.Core, app: *App, window_id: mach.ObjectID) !void {
     const frag_map = gpu.FragmentState.init(.{ .module = map_module, .entry_point = "frag_main", .targets = &.{color_target} });
     const frag_bvh = gpu.FragmentState.init(.{ .module = bvh_module, .entry_point = "frag_main", .targets = &.{color_target} });
     const frag_player = gpu.FragmentState.init(.{ .module = player_module, .entry_point = "frag_main", .targets = &.{color_target} });
+    const frag_vision = gpu.FragmentState.init(.{ .module = vision_module, .entry_point = "frag_main", .targets = &.{color_target} });
 
     app.map_pipeline = window.device.createRenderPipeline(&gpu.RenderPipeline.Descriptor{
         .fragment = &frag_map,
         .layout = pipeline_layout,
         .vertex = gpu.VertexState{
             .module = map_module,
+            .entry_point = "vertex_main",
+            .buffers = &vertex_layouts,
+            .buffer_count = 1,
+        },
+    });
+    app.vision_pipeline = window.device.createRenderPipeline(&gpu.RenderPipeline.Descriptor{
+        .fragment = &frag_vision,
+        .layout = pipeline_layout,
+        .vertex = gpu.VertexState{
+            .module = vision_module,
             .entry_point = "vertex_main",
             .buffers = &vertex_layouts,
             .buffer_count = 1,
@@ -207,7 +248,7 @@ fn updateCameera(app: *App) void {
 
 fn updateSystems(app: *App, core: *mach.Core) void {
     app.player.aabb.pos += app.player.velocity;
-    print("Player position: {}\n", .{app.player.aabb.pos});
+    // print("Player position: {}\n", .{app.player.aabb.pos});
     const window = core.windows.getValue(app.window);
     app.globals.aspect_ratio = @as(f32, @floatFromInt(window.width)) / @as(f32, @floatFromInt(window.height));
     app.updateCamera();
@@ -218,10 +259,10 @@ fn updateBuffers(app: *App, core: *mach.Core) !void {
 
     const pids = try app.map.bvh.getPidsOverlappingAABB(app.camera.aabb);
     defer app.map.bvh.allocator.free(pids);
-    var visible_gpu_data = try app.map.bvh.allocator.alloc(T.RectGPU, pids.len);
+    var visible_gpu_data = try app.map.bvh.allocator.alloc(T.Vec4GPU, pids.len);
     defer app.map.bvh.allocator.free(visible_gpu_data);
     for (pids, 0..) |pid, i| {
-        visible_gpu_data[i] = T.getScreenRectGPU(
+        visible_gpu_data[i] = T.getScreenVec4GPU(
             app.map.bvh.platforms[pid].aabb,
             app.camera.aabb,
             app.camera.zoom,
@@ -236,8 +277,19 @@ fn updateBuffers(app: *App, core: *mach.Core) !void {
     const aabbs = try app.map.bvh.getAABBs();
     defer app.map.bvh.allocator.free(aabbs);
     window.queue.writeBuffer(app.bvh_buffer, 0, aabbs[0..aabbs.len]);
+    const hit_ = app.player.vision.castSingleRay(app.map.bvh);
+
+    if (hit_) |hit| {
+        const end = T.v2Scale(hit.dir, hit.dist);
+        window.queue.writeBuffer(app.vision_buffer, 0, T.VectGPU{
+            .x = hit.ori[0],
+            .y = hit.ori[1],
+            .w = end[0],
+            .z = end[1],
+        });
+    }
     window.queue.writeBuffer(app.globals_buffer, 0, &[_]T.Globals{app.globals});
-    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.RectGPU{T.getScreenRectGPU(
+    window.queue.writeBuffer(app.player_buffer, 0, &[_]T.Vec4GPU{T.getScreenVec4GPU(
         app.player.aabb,
         app.camera.aabb,
         app.camera.zoom,
@@ -275,6 +327,7 @@ fn handleEvents(app: *App, core: *mach.Core) void {
 }
 
 pub fn tick(app: *App, core: *mach.Core) void {
+    const start_time = std.time.microTimestamp();
     handleEvents(app, core);
     app.updateSystems(core);
     app.updateBuffers(core) catch |e| {
@@ -297,23 +350,38 @@ pub fn tick(app: *App, core: *mach.Core) void {
 
     render_pass.setPipeline(app.map_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.RectGPU) * app.visible_platforms_count);
+    render_pass.setVertexBuffer(0, app.plats_buffer, 0, @sizeOf(T.Vec4GPU) * app.visible_platforms_count);
     render_pass.draw(6, @intCast(app.visible_platforms_count), 0, 0);
 
-    render_pass.setPipeline(app.bvh_pipeline);
+    // render_pass.setPipeline(app.bvh_pipeline);
+    // render_pass.setBindGroup(0, app.bind_group, &.{});
+    // render_pass.setVertexBuffer(0, app.bvh_buffer, 0, (app.map.bvh.platforms.len - 1) * @sizeOf(T.Vec4GPU));
+    // render_pass.draw(8, @intCast(app.map.bvh.platforms.len - 1), 0, 0);
+
+    render_pass.setPipeline(app.vision_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.bvh_buffer, 0, (app.map.bvh.platforms.len - 1) * @sizeOf(T.RectGPU));
-    render_pass.draw(8, @intCast(app.map.bvh.platforms.len - 1), 0, 0);
+    render_pass.setVertexBuffer(0, app.vision_buffer, 0, @sizeOf(T.Vec4GPU));
+    render_pass.draw(4, 1, 0, 0);
 
     render_pass.setPipeline(app.player_pipeline);
     render_pass.setBindGroup(0, app.bind_group, &.{});
-    render_pass.setVertexBuffer(0, app.player_buffer, 0, @sizeOf(T.RectGPU));
+    render_pass.setVertexBuffer(0, app.player_buffer, 0, @sizeOf(T.Vec4GPU));
     render_pass.draw(6, 1, 0, 0);
 
     render_pass.end();
     var command = encoder.finish(&.{});
     defer command.release();
     window.queue.submit(&[_]*gpu.CommandBuffer{command});
+    const end_time = std.time.microTimestamp();
+    const frame_duration = end_time - start_time;
+    app.frames += 1;
+    app.accumulated_time += frame_duration;
+    if (app.accumulated_time >= 1_000_000) {
+        // const average_fps = @as(f64, @floatFromInt(app.frames)) / (@as(f64, @floatFromInt(app.accumulated_time)) / 1_000_000.0);
+        // print("Average FPS: {d:.2}\n", .{average_fps});
+        app.frames = 0;
+        app.accumulated_time = 0;
+    }
 }
 
 pub fn deinit(app: *App) void {
